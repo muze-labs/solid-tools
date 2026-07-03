@@ -1,0 +1,25 @@
+{
+  "name": "@muze-labs/lading",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A thin Solid resource and container layer over Metro.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./client": "./src/client.mjs",
+    "./headers": "./src/headers.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "solid",
+    "linked-data",
+    "metro",
+    "muze"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@muze-nl/metro": "^0.7.1"
+  }
+}

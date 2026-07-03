@@ -1,0 +1,26 @@
+{
+  "name": "@muze-labs/solid-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Muze Solid access tools: Lading and JSFS-Solid.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muze-labs/solid-tools.git"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.39.2",
+    "globals": "^16.5.0"
+  }
+}

@@ -1,4 +1,12 @@
-import metro from '@muze-nl/metro'
+let metro = null
+
+try {
+  const imported = await import('@muze-nl/metro')
+  metro = imported.default ?? imported
+} catch {
+  metro = null
+}
+
 import {
   containerHeaders,
   getETag,
@@ -26,11 +34,47 @@ function ids(value) {
     .filter(Boolean)
 }
 
+function unique(items) {
+  return [...new Set(items)]
+}
+
+export function storageUrlsFromProfile(profile) {
+  if (!profile) {
+    return []
+  }
+
+  return unique([
+    ...ids(profile.space$storage),
+    ...ids(profile.pim$storage),
+    ...ids(profile.solid$storage)
+  ].map(ensureSlash))
+}
+
+export function storageFromProfile(profile, options = {}) {
+  return storageUrlsFromProfile(profile).map(url => ({
+    profile,
+    response: options.response ?? null,
+    id: url,
+    url
+  }))
+}
+
+function throwerFactory(options = {}) {
+  if (options.thrower === false) {
+    return null
+  }
+  if (typeof options.thrower === 'function') {
+    return options.thrower
+  }
+  return metro?.mw?.thrower ?? null
+}
+
 function withThrower(client, options = {}) {
-  if (options.thrower === false || !client || typeof client.with !== 'function') {
+  const createThrower = throwerFactory(options)
+  if (!createThrower || !client || typeof client.with !== 'function') {
     return client
   }
-  return client.with(metro.mw.thrower(options.thrower))
+  return client.with(createThrower(options.thrower))
 }
 
 function bodyOptions(body, options = {}) {
@@ -79,13 +123,7 @@ export class LadingClient {
 
   async discoverStorage(webId, options = {}) {
     const { profile, response } = await this.discoverProfile(webId, options)
-    if (!profile) {
-      return []
-    }
-
-    return ids(profile.space$storage ?? profile.pim$storage ?? profile.solid$storage)
-      .map(url => ensureSlash(url))
-      .map(url => ({ id: url, url, response }))
+    return storageFromProfile(profile, { response })
   }
 
   async discoverWebId(webId, options = {}) {
@@ -97,11 +135,15 @@ export class LadingClient {
     return {
       webId,
       profile,
-      storage: ids(profile.space$storage ?? profile.pim$storage ?? profile.solid$storage).map(ensureSlash),
+      storage: storageUrlsFromProfile(profile),
       issuer: ids(profile.solid$oidcIssuer)[0] ?? null,
       inbox: ids(profile.ldp$inbox)[0] ?? null,
       response
     }
+  }
+
+  storageFromProfile(profile, options = {}) {
+    return storageFromProfile(profile, options)
   }
 }
 

@@ -3,19 +3,33 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Muze Solid access tools: Lading and JSFS-Solid.",
+  "description": "Solid and linked-data runtime tools for SimplySolid.",
+  "packageManager": "npm@10",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/*"
   ],
   "scripts": {
-    "test": "npm run test --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present"
+    "build": "node scripts/check-workspace.mjs",
+    "test": "node --test packages/*/test/*.test.mjs examples/*/test/*.test.mjs",
+    "check": "npm run build && npm test",
+    "lint": "eslint ."
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/muze-labs/solid-tools.git"
   },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "solid",
+    "linked-data",
+    "simplysolid",
+    "simplyflow",
+    "oldm",
+    "muze"
+  ],
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "^9.39.2",

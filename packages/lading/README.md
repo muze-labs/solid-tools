@@ -63,6 +63,14 @@ info.issuer  // Solid OIDC issuer URL, if present
 info.inbox   // LDP inbox URL, if present
 ```
 
+If a caller already has parsed profile data, the same storage normalization is available without another HTTP request:
+
+```js
+import { storageUrlsFromProfile } from '@muze-labs/lading'
+
+const storage = storageUrlsFromProfile(profile)
+```
+
 Lading does not parse Turtle or JSON-LD itself. If the Metro client does not use a linked-data middleware, discovery returns no profile data.
 
 ## Headers

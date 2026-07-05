@@ -1,0 +1,31 @@
+{
+  "name": "@muze-labs/simplysolid",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "SimplyFlow runtime integration for Solid workspaces and collections.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "solid",
+    "linked-data",
+    "muze"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@muze-labs/oldm-shape": "workspace:*",
+    "@muze-labs/solid-workspace": "workspace:*"
+  },
+  "peerDependencies": {
+    "@muze-labs/simplyflow": ">=0.10.0"
+  },
+  "peerDependenciesMeta": {
+    "@muze-labs/simplyflow": {
+      "optional": true
+    }
+  }
+}

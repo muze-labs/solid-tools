@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { lading, responseFromError, statusFromError } from '../src/index.mjs'
+import {
+  lading,
+  responseFromError,
+  statusFromError,
+  storageFromProfile,
+  storageUrlsFromProfile
+} from '../src/index.mjs'
 
 test('resource methods delegate to direct Metro verb methods', async () => {
   const calls = []
@@ -20,7 +26,7 @@ test('resource methods delegate to direct Metro verb methods', async () => {
   assert.equal(calls[0].options.headers['Content-Type'], 'text/plain')
 })
 
-test('lading adds Metro thrower middleware when the client supports with()', async () => {
+test('lading can add a supplied thrower middleware when the client supports with()', async () => {
   let middleware = null
   const base = {
     with(mw) {
@@ -32,7 +38,11 @@ test('lading adds Metro thrower middleware when the client supports with()', asy
     }
   }
 
-  const solid = lading(base)
+  const solid = lading(base, {
+    thrower() {
+      return response => response
+    }
+  })
   await solid.resource('/ok').get()
 
   assert.equal(typeof middleware, 'function')
@@ -81,6 +91,69 @@ test('discoverWebId consumes Metro-OLDM parsed profile data without parsing RDF 
   assert.deepEqual(profile.storage, ['https://pod.example/storage/'])
   assert.equal(profile.issuer, 'https://issuer.example/')
   assert.equal(profile.inbox, 'https://pod.example/inbox/')
+})
+
+test('storageUrlsFromProfile reads all supported Solid storage predicates', () => {
+  const profile = {
+    space$storage: [
+      { id: 'https://pod.example/storage' },
+      { id: 'https://pod.example/archive/' }
+    ],
+    pim$storage: 'https://pod.example/storage/',
+    solid$storage: { id: 'https://pod.example/other' }
+  }
+
+  assert.deepEqual(storageUrlsFromProfile(profile), [
+    'https://pod.example/storage/',
+    'https://pod.example/archive/',
+    'https://pod.example/other/'
+  ])
+})
+
+test('storageFromProfile keeps profile and response context for callers', () => {
+  const response = { status: 200 }
+  const profile = { space$storage: { id: 'https://pod.example/storage' } }
+
+  assert.deepEqual(storageFromProfile(profile, { response }), [{
+    profile,
+    response,
+    id: 'https://pod.example/storage/',
+    url: 'https://pod.example/storage/'
+  }])
+})
+
+test('discoverStorage returns storage roots from WebID profile data', async () => {
+  const response = {
+    ok: true,
+    status: 200,
+    headers: {},
+    data: {
+      primary: {
+        space$storage: { id: 'https://pod.example/storage' },
+        pim$storage: { id: 'https://pod.example/archive/' }
+      }
+    }
+  }
+  const metro = {
+    async get() {
+      return response
+    }
+  }
+
+  assert.deepEqual(await lading(metro).discoverStorage('https://pod.example/profile#me'), [
+    {
+      profile: response.data.primary,
+      response,
+      id: 'https://pod.example/storage/',
+      url: 'https://pod.example/storage/'
+    },
+    {
+      profile: response.data.primary,
+      response,
+      id: 'https://pod.example/archive/',
+      url: 'https://pod.example/archive/'
+    }
+  ])
 })
 
 test('errors remain Metro thrower errors with the response in cause', () => {

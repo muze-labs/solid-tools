@@ -1,0 +1,23 @@
+{
+  "name": "@muze-labs/solid-workspace",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Source-aware OLDMed working set over Solid resources and containers.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "solid",
+    "linked-data",
+    "muze"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@muze-labs/lading": "workspace:*",
+    "@muze-labs/oldm-shape": "workspace:*"
+  }
+}

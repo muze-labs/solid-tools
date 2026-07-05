@@ -1,0 +1,24 @@
+{
+  "name": "@muze-labs/solid-tools-example-contacts",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Contacts example for the SimplySolid runtime stack.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "solid",
+    "linked-data",
+    "muze"
+  ],
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "@muze-labs/oldm-shape": "workspace:*",
+    "@muze-labs/simplysolid": "workspace:*"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@muze-labs/simplysolid-templates",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Semantic template inspection for SimplySolid reusable templates.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "solid",
+    "linked-data",
+    "muze"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@muze-labs/oldm-shape": "workspace:*"
+  }
+}

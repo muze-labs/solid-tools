@@ -1,0 +1,19 @@
+{
+  "name": "@muze-labs/oldm-shape",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Native OLDMed shape declarations, validation, and shape satisfaction checks.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "solid",
+    "linked-data",
+    "muze"
+  ],
+  "license": "MIT"
+}

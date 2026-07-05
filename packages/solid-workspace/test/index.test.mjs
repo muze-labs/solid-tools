@@ -1,8 +1,339 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { packageName, solid } from '../src/index.mjs'
+import { collection, packageName, solid, workspace } from '../src/index.mjs'
+import { field, shape } from '@muze-labs/oldm-shape'
 
 test('solid-workspace scaffold exports source descriptors', () => {
   assert.equal(packageName, '@muze-labs/solid-workspace')
-  assert.deepEqual(solid.resource('/a.ttl'), { kind: 'resource', url: '/a.ttl' })
+  assert.deepEqual(solid.resource('/a.ttl'), {
+    kind: 'resource',
+    id: '/a.ttl',
+    url: '/a.ttl',
+    readOnly: false,
+    shape: null,
+    options: {}
+  })
 })
+
+test('loads direct resources and tracks object source urls', async () => {
+  const contact = {
+    id: 'https://pod.example/contacts/ada.ttl#me',
+    rdf$type: 'schema$Person',
+    schema$name: 'Ada'
+  }
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/contacts/ada.ttl': contact
+    }
+  })
+  const ws = workspace({
+    solid: client,
+    sources: [
+      solid.resource('https://pod.example/contacts/ada.ttl', { id: 'ada' })
+    ]
+  })
+
+  await ws.load()
+
+  assert.equal(ws.records.length, 1)
+  assert.equal(ws.records[0].object, contact)
+  assert.equal(ws.sourceOf(contact).sourceUrl, 'https://pod.example/contacts/ada.ttl')
+  assert.deepEqual(client.calls, [
+    ['resource.get', 'https://pod.example/contacts/ada.ttl']
+  ])
+})
+
+test('loads container resources into collection views', async () => {
+  const ContactShape = shape({
+    class: 'schema$Person',
+    fields: {
+      schema$name: field.string({ min: 1, max: 1 })
+    }
+  })
+  const ada = {
+    id: 'https://pod.example/contacts/ada.ttl#me',
+    rdf$type: 'schema$Person',
+    schema$name: 'Ada'
+  }
+  const org = {
+    id: 'https://pod.example/contacts/acme.ttl#org',
+    rdf$type: 'schema$Organization',
+    schema$name: 'Acme'
+  }
+  const client = createSolidDouble({
+    containers: {
+      'https://pod.example/contacts/': [
+        'https://pod.example/contacts/ada.ttl',
+        'https://pod.example/contacts/acme.ttl'
+      ]
+    },
+    resources: {
+      'https://pod.example/contacts/ada.ttl': ada,
+      'https://pod.example/contacts/acme.ttl': org
+    }
+  })
+  const ws = workspace({
+    solid: client,
+    sources: [
+      solid.container('https://pod.example/contacts/', { id: 'contacts' })
+    ],
+    collections: {
+      contacts: collection({
+        shape: ContactShape,
+        sources: ['contacts'],
+        createIn: 'contacts'
+      })
+    }
+  })
+
+  await ws.load()
+
+  assert.deepEqual(ws.collections.contacts.list(), [ada])
+  assert.equal(ws.collections.contacts.get(ada.id), ada)
+})
+
+test('creates new collection objects through createIn routing', async () => {
+  const ContactShape = shape({
+    class: 'schema$Person',
+    fields: {
+      schema$name: field.string({ min: 1, max: 1 }),
+      schema$email: field.string({ many: true, default: () => [] })
+    }
+  })
+  const client = createSolidDouble()
+  const ws = workspace({
+    solid: client,
+    sources: [
+      solid.container('https://pod.example/contacts/', { id: 'contacts' })
+    ],
+    collections: {
+      contacts: collection({
+        shape: ContactShape,
+        sources: ['contacts'],
+        createIn: 'contacts'
+      })
+    }
+  })
+
+  const ada = await ws.collections.contacts.create({
+    id: 'urn:uuid:ada',
+    rdf$type: 'schema$Person',
+    schema$name: 'Ada'
+  })
+  const status = await ws.collections.contacts.save(ada)
+
+  assert.equal(status.ok, true)
+  assert.equal(status.status, 'created')
+  assert.deepEqual(ada.schema$email, [])
+  assert.deepEqual(client.calls, [
+    ['container.post', 'https://pod.example/contacts/', ada]
+  ])
+})
+
+test('updates and deletes existing tracked resources', async () => {
+  const ada = {
+    id: 'https://pod.example/contacts/ada.ttl#me',
+    rdf$type: 'schema$Person',
+    schema$name: 'Ada'
+  }
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/contacts/ada.ttl': ada
+    }
+  })
+  const ws = workspace({
+    solid: client,
+    sources: [
+      solid.resource('https://pod.example/contacts/ada.ttl', { id: 'ada' })
+    ]
+  })
+
+  await ws.load()
+  ada.schema$name = 'Ada Lovelace'
+
+  const saved = await ws.save(ada)
+  const deleted = await ws.delete(ada)
+
+  assert.equal(saved.status, 'saved')
+  assert.equal(deleted.status, 'deleted')
+  assert.deepEqual(client.calls, [
+    ['resource.get', 'https://pod.example/contacts/ada.ttl'],
+    ['resource.put', 'https://pod.example/contacts/ada.ttl', ada],
+    ['resource.delete', 'https://pod.example/contacts/ada.ttl']
+  ])
+})
+
+test('delegates fact-level source lookup to OLDM context when available', async () => {
+  const contact = {
+    id: 'https://pod.example/contacts/ada.ttl#me',
+    rdf$type: 'schema$Person',
+    schema$name: 'Ada'
+  }
+  const context = {
+    sources(object, predicate, value) {
+      assert.equal(object, contact)
+      assert.equal(predicate, 'schema$name')
+      assert.equal(value, 'Ada')
+      return [{ url: 'https://pod.example/profile.ttl' }]
+    }
+  }
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/contacts/ada.ttl': contact
+    },
+    contexts: {
+      'https://pod.example/contacts/ada.ttl': context
+    }
+  })
+  const ws = workspace({
+    solid: client,
+    sources: [
+      solid.resource('https://pod.example/contacts/ada.ttl', { id: 'ada' })
+    ]
+  })
+
+  await ws.load()
+
+  assert.equal(ws.sourceOf(contact, 'schema$name', 'Ada').sourceUrl, 'https://pod.example/profile.ttl')
+})
+
+test('read-only sources report read_only for otherwise valid saves', async () => {
+  const ContactShape = shape({
+    class: 'schema$Person',
+    fields: {
+      schema$name: field.string({ min: 1, max: 1 })
+    }
+  })
+  const ada = {
+    id: 'https://pod.example/contacts/ada.ttl#me',
+    rdf$type: 'schema$Person',
+    schema$name: 'Ada'
+  }
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/contacts/ada.ttl': ada
+    }
+  })
+  const ws = workspace({
+    solid: client,
+    sources: [
+      solid.resource('https://pod.example/contacts/ada.ttl', {
+        id: 'ada',
+        readOnly: true,
+        shape: ContactShape
+      })
+    ]
+  })
+
+  await ws.load()
+
+  const status = await ws.save(ada)
+
+  assert.equal(status.ok, false)
+  assert.equal(status.status, 'read_only')
+})
+
+test('read-only and validation failures are reported in saveAll statuses', async () => {
+  const ContactShape = shape({
+    class: 'schema$Person',
+    fields: {
+      schema$name: field.string({ min: 1, max: 1 })
+    }
+  })
+  const ada = {
+    id: 'https://pod.example/contacts/ada.ttl#me',
+    rdf$type: 'schema$Person'
+  }
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/contacts/ada.ttl': ada
+    }
+  })
+  const ws = workspace({
+    solid: client,
+    sources: [
+      solid.resource('https://pod.example/contacts/ada.ttl', {
+        id: 'ada',
+        readOnly: true,
+        shape: ContactShape
+      })
+    ]
+  })
+
+  await ws.load()
+
+  await assert.rejects(
+    () => ws.saveAll(),
+    error => {
+      assert.equal(error.message, 'solid-workspace: saveAll failed')
+      assert.equal(error.failures[0].status, 'validation_failed')
+      return true
+    }
+  )
+})
+
+function createSolidDouble({ resources = {}, containers = {}, contexts = {} } = {}) {
+  const calls = []
+
+  return {
+    calls,
+    resource(url) {
+      return {
+        async get() {
+          calls.push(['resource.get', url])
+          return responseFor(url, resources[url], { context: contexts[url] })
+        },
+        async put(body) {
+          calls.push(['resource.put', url, body])
+          resources[url] = body
+          return responseFor(url, body)
+        },
+        async create(body) {
+          calls.push(['resource.create', url, body])
+          resources[url] = body
+          return responseFor(url, body)
+        },
+        async delete() {
+          calls.push(['resource.delete', url])
+          delete resources[url]
+          return responseFor(url, null, { status: 204 })
+        }
+      }
+    },
+    container(url) {
+      return {
+        async contains() {
+          calls.push(['container.contains', url])
+          return (containers[url] ?? []).map(resourceUrl => ({
+            id: resourceUrl,
+            url: resourceUrl
+          }))
+        },
+        async post(body) {
+          calls.push(['container.post', url, body])
+          const location = `${url}${encodeURIComponent(body.id ?? String(calls.length))}.ttl`
+          resources[location] = body
+          return {
+            response: responseFor(location, body, { status: 201 }),
+            location,
+            etag: '"created"'
+          }
+        }
+      }
+    }
+  }
+}
+
+function responseFor(url, object, options = {}) {
+  return {
+    status: options.status ?? 200,
+    url,
+    data: object ? {
+      primary: object,
+      subjects: {
+        [object.id ?? url]: object
+      },
+      context: options.context ?? null
+    } : null
+  }
+}

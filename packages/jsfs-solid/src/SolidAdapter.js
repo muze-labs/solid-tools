@@ -1,7 +1,6 @@
-import HttpAdapter from '@muze-nl/jsfs/src/Adapters/Http.mjs'
 import { lading } from '@muze-labs/lading'
 import { createSolidMetroClient } from './metro.mjs'
-import { filename, isAbsoluteUrl, pathFromUrl, resolveSolidUrl } from './paths.mjs'
+import { filename, isAbsoluteUrl, joinPath, pathFromUrl, resolveSolidUrl } from './paths.mjs'
 
 function readContentType(response) {
   if (response?.headers?.get) {
@@ -29,11 +28,12 @@ function hasType(resource, type) {
   return many(resource?.a).includes(type)
 }
 
-export default class SolidAdapter extends HttpAdapter {
+export default class SolidAdapter {
   #rootUrl
   #basePath
   #metro
   #solid
+  #options
 
   constructor(rootUrl, path = '/', options = {}) {
     if (typeof path === 'object' && path !== null) {
@@ -48,12 +48,11 @@ export default class SolidAdapter extends HttpAdapter {
     const actualRootUrl = rootUrl ?? options.rootUrl
     const metroClient = createSolidMetroClient(actualRootUrl, options)
 
-    super(metroClient, path)
-
     this.#rootUrl = String(actualRootUrl)
     this.#basePath = path
     this.#metro = metroClient
     this.#solid = options.solid ?? lading(metroClient)
+    this.#options = options
   }
 
   get name() {
@@ -72,12 +71,40 @@ export default class SolidAdapter extends HttpAdapter {
     return this.#solid
   }
 
+  get path() {
+    return this.#basePath
+  }
+
+  supportsWrite() {
+    return true
+  }
+
+  supportsStreamingRead() {
+    return false
+  }
+
+  supportsStreamingWrite() {
+    return false
+  }
+
   supportsDirectories() {
     return true
   }
 
+  cd(path = '/') {
+    return new SolidAdapter(this.#rootUrl, joinPath(this.#basePath, path), this.#options)
+  }
+
   url(path = '/') {
     return resolveSolidUrl(this.#rootUrl, this.#basePath, path)
+  }
+
+  readStream() {
+    throw new Error('SolidAdapter does not support streaming reads')
+  }
+
+  writeStream() {
+    throw new Error('SolidAdapter does not support streaming writes')
   }
 
   async read(path = '/') {
@@ -138,6 +165,10 @@ export default class SolidAdapter extends HttpAdapter {
 
   async delete(path) {
     return this.remove(path)
+  }
+
+  async exists(path) {
+    return this.#solid.resource(this.url(path)).head()
   }
 
   async list(path = '/') {

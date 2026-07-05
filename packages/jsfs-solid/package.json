@@ -11,6 +11,7 @@
   },
   "source": "src/index.mjs",
   "scripts": {
+    "test": "node --test test/*.test.mjs",
     "build-dev": "esbuild --bundle src/browser.js --outfile=dist/browser.js --sourcemap",
     "build": "esbuild --bundle src/browser.js --outfile=dist/browser.min.js --minify --sourcemap"
   },

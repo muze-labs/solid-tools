@@ -1,9 +1,5 @@
-import * as jsfsModule from '@muze-nl/jsfs'
+import FileSystem from '@muze-nl/jsfs/src/FileSystem.mjs'
 import SolidAdapter from './SolidAdapter.js'
-
-function jsfsApi() {
-  return jsfsModule.default ?? jsfsModule.jsfs ?? globalThis.jsfs ?? null
-}
 
 function adapterInput(rootUrl, options = {}) {
   if (typeof rootUrl === 'object' && rootUrl !== null) {
@@ -28,11 +24,7 @@ export function createSolidAdapter(rootUrl, options = {}) {
 
 export function solidFs(rootUrl, options = {}) {
   const adapter = createSolidAdapter(rootUrl, options)
-  const jsfs = jsfsApi()
-  if (jsfs?.fs) {
-    return new jsfs.fs(adapter)
-  }
-  return adapter
+  return new FileSystem(adapter)
 }
 
 export { SolidAdapter }

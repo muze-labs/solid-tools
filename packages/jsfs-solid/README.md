@@ -4,6 +4,11 @@ JSFS-Solid is a JSFS adapter for Solid storage. It is implemented on top of [`@m
 
 This package is experimental and has no production compatibility promise yet.
 
+Docs:
+
+- [Tutorial](docs/tutorial.md)
+- [Reference](docs/reference.md)
+
 ## Usage
 
 ```js
@@ -59,6 +64,20 @@ const adapter = new SolidAdapter('https://example.pod/storage/', {
 ```
 
 A provided Metro client is treated as already configured. Pass `configureMetro: true` to add JSFS-Solid's default `metro-oidc` and `metro-oldm` middleware stack.
+
+## Default Metro composition
+
+`SolidAdapter` can create a Metro client from the root URL. In that default path it composes:
+
+- `@muze-nl/metro` for HTTP;
+- `@muze-nl/metro-oidc` for authentication/session middleware;
+- `@muze-nl/metro-oldm` for linked-data parsing and writing.
+
+This is adapter setup only. JSFS-Solid does not provide app-level login, storage discovery, setup conventions, or a `solidClient` wrapper.
+
+## Package name
+
+The package stays under `@muze-labs/jsfs-solid` while this stack is experimental. Moving it to a production `@muze-nl` package should be a later release-readiness decision.
 
 ## Package boundary
 

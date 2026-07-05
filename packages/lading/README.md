@@ -15,6 +15,7 @@ const solid = lading(client)
 
 await solid.resource('notes/hello.txt').get()
 await solid.resource('notes/hello.txt').put('Hello', { contentType: 'text/plain' })
+await solid.resource('notes/new.txt').create('Hello', { contentType: 'text/plain' })
 await solid.container('notes/').create()
 
 const created = await solid.container('notes/').post('Hello', {
@@ -24,6 +25,8 @@ const created = await solid.container('notes/').post('Hello', {
 
 console.log(created.location)
 ```
+
+`resource.create(body, options)` and `container.create(options)` send `If-None-Match: *` by default so callers can create without overwriting an existing resource. Use direct `put()` when replacement is intentional.
 
 ## Metro style
 
@@ -51,6 +54,18 @@ try {
 }
 ```
 
+Pass `{ thrower: false }` when a caller needs to receive non-OK responses directly, for example during OIDC login or authorization flows that branch on `401` or `403`.
+
+Creation helpers keep the normal Metro/fetch-shaped response. `container.post()` additionally exposes Solid creation headers:
+
+```js
+const created = await solid.container(url).post(body, { slug: 'note.ttl' })
+
+created.response.status // HTTP status from Metro
+created.location        // Location response header
+created.etag            // ETag response header
+```
+
 ## Discovery
 
 Lading can consume linked-data already parsed by `metro-oldm`:
@@ -72,6 +87,15 @@ const storage = storageUrlsFromProfile(profile)
 ```
 
 Lading does not parse Turtle or JSON-LD itself. If the Metro client does not use a linked-data middleware, discovery returns no profile data.
+
+Container membership also consumes parsed linked data from the response:
+
+```js
+const entries = await solid.container(storageUrl).contains()
+
+entries[0].url      // contained resource URL
+entries[0].resource // parsed ldp:contains item
+```
 
 ## Headers
 

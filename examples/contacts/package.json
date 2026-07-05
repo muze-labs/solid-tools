@@ -18,7 +18,7 @@
   "license": "MIT",
   "private": true,
   "dependencies": {
-    "@muze-labs/oldm-shape": "workspace:*",
-    "@muze-labs/simplysolid": "workspace:*"
+    "@muze-labs/oldm-shape": "0.1.0",
+    "@muze-labs/simplysolid": "0.1.0"
   }
 }

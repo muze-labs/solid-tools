@@ -17,8 +17,8 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@muze-labs/oldm-shape": "workspace:*",
-    "@muze-labs/solid-workspace": "workspace:*"
+    "@muze-labs/oldm-shape": "0.1.0",
+    "@muze-labs/solid-workspace": "0.1.0"
   },
   "peerDependencies": {
     "@muze-labs/simplyflow": ">=0.10.0"

@@ -22,9 +22,9 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@muze-labs/lading": "workspace:*",
+    "@muze-labs/lading": "0.1.0",
     "@muze-nl/jsfs": "^0.3.5",
-    "@muze-nl/metro": "^0.7.1",
+    "@muze-nl/metro": "^0.8.0",
     "@muze-nl/metro-oidc": "^0.6.0",
     "@muze-nl/metro-oldm": "^0.4.0"
   }

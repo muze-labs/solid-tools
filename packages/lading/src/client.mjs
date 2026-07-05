@@ -92,6 +92,16 @@ function requestOptions(options = {}) {
   }
 }
 
+function safeCreateOptions(options = {}) {
+  if (Object.hasOwn(options, 'ifNoneMatch')) {
+    return options
+  }
+  return {
+    ...options,
+    ifNoneMatch: '*'
+  }
+}
+
 export class LadingClient {
   constructor(metroClient, options = {}) {
     if (!metroClient) {
@@ -165,6 +175,10 @@ export class SolidResource {
     return this.client.metro.put(this.url, bodyOptions(body, options))
   }
 
+  create(body, options = {}) {
+    return this.put(body, safeCreateOptions(options))
+  }
+
   patch(body, options = {}) {
     return this.client.metro.patch(this.url, bodyOptions(body, options))
   }
@@ -187,9 +201,10 @@ export class SolidContainer extends SolidResource {
   }
 
   create(options = {}) {
-    return this.client.metro.put(this.url, bodyOptions(options.body ?? '', {
-      ...options,
-      headers: containerHeaders(options)
+    const createOptions = safeCreateOptions(options)
+    return this.client.metro.put(this.url, bodyOptions(createOptions.body ?? '', {
+      ...createOptions,
+      headers: containerHeaders(createOptions)
     }))
   }
 

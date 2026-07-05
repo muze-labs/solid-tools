@@ -2,6 +2,8 @@
 
 JSFS-Solid is a JSFS adapter for Solid storage. It is implemented on top of [`@muze-labs/lading`](../lading), so Solid resource/container operations live in one lower-level package.
 
+Milestone status: Milestone 2 adapter review is implemented.
+
 This package is experimental and has no production compatibility promise yet.
 
 Docs:

@@ -1,5 +1,12 @@
 # @muze-labs/simplysolid
 
-SimplyFlow extension that will expose Solid collections through app.solid.
+SimplyFlow runtime extension that exposes Solid collections through `app.solid`.
 
-This package is currently a Milestone 0 scaffold. Its public API will be implemented in the relevant implementation milestone.
+Milestone status: Milestone 5 MVP core is implemented.
+
+SimplySolid creates app-facing collection handles on top of Solid Workspace. It keeps Solid concerns inside `app.solid`, while Lading, Metro-OLDM/OLDM, and oldm-shape keep their own lower-level responsibilities.
+
+Docs:
+
+- [Tutorial](docs/tutorial.md)
+- [Reference](docs/reference.md)

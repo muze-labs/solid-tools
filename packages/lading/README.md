@@ -2,6 +2,8 @@
 
 Lading is the Solid-shaped Metro layer.
 
+Milestone status: Milestone 1 core is implemented.
+
 It handles Solid resource and container operations, header helpers, safe write options, and minimal Solid discovery over an already-configured Metro client.
 
 It does **not** handle authentication, RDF parsing, file-system APIs, OLDM object modelling, or application conventions.

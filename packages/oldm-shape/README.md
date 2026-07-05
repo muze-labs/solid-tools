@@ -2,6 +2,8 @@
 
 Native linked-data shape declarations for SimplySolid and reusable templates.
 
+Milestone status: Milestone 3 core is implemented.
+
 This package defines inspectable data contracts over OLDMed JavaScript objects. It does not parse RDF, load Solid resources, choose UI components, or map objects to graphs; those concerns stay in OLDM, Lading, Solid Workspace, SimplySolid, and SimplyCode.
 
 ## Usage

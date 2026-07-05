@@ -27,7 +27,7 @@ JSFS-Solid owns file-system-shaped operations such as:
 - `rmdir`
 - `remove`
 
-It may compose Metro-OIDC and Metro-OLDM, but those concerns remain separate libraries.
+It may compose Metro-OIDC and Metro-OLDM when constructing a default adapter client, but those concerns remain separate libraries. It does not export an application-level `solidClient`; application setup belongs in SimplySolid.
 
 ## Not included here
 

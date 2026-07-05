@@ -1,16 +1,7 @@
-import SolidAdapter from './SolidAdapter.js'
-import solidClient from './SolidClient.js'
+import jsfsSolid, { SolidAdapter, createSolidAdapter, solidFs } from './index.mjs'
 
-const jsfsSolid = {
-  adapter: SolidAdapter,
-  client: solidClient,
-  solidClient,
-  SolidAdapter
-}
-
-export { SolidAdapter, solidClient }
+export { SolidAdapter, createSolidAdapter, solidFs }
 export default jsfsSolid
 
 globalThis.jsfsSolid = jsfsSolid
-globalThis.solidClient = solidClient
 globalThis.SolidAdapter = SolidAdapter

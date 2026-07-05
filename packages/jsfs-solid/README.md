@@ -7,42 +7,29 @@ This package is experimental and has no production compatibility promise yet.
 ## Usage
 
 ```js
-import solidClient from '@muze-labs/jsfs-solid'
-
-const client = await solidClient('https://example.pod/profile/card#me', {
-  client_info: {
-    client_name: 'My App'
-  }
-})
-
-const storage = client.storage[0]
-const entries = await storage.list('/')
-const file = await storage.read('contacts.ttl')
-```
-
-The returned client contains:
-
-- `webId`
-- `profile`
-- `issuer`
-- `inbox`
-- `storage`: one JSFS filesystem per storage root
-- `metro`: the configured Metro client
-- `solid`: the Lading client
-
-## Passing an existing Metro client
-
-```js
 import metro from '@muze-nl/metro'
-import { SolidAdapter } from '@muze-labs/jsfs-solid'
+import oidc from '@muze-nl/metro-oidc'
+import oldmmw from '@muze-nl/metro-oldm'
+import { lading } from '@muze-labs/lading'
+import { solidFs } from '@muze-labs/jsfs-solid'
 
 const client = metro.client('https://example.pod/storage/')
-const adapter = new SolidAdapter('https://example.pod/storage/', {
-  metroClient: client
-})
+  .with(oidc.oidcmw({
+    issuer: 'https://issuer.example/',
+    client_info: {
+      client_name: 'My App'
+    }
+  }))
+  .with(oldmmw())
+
+const solid = lading(client)
+const fs = solidFs('https://example.pod/storage/', { client, solid })
+
+await fs.write('/notes/hello.txt', 'Hello', { type: 'text/plain' })
+const note = await fs.read('/notes/hello.txt')
 ```
 
-A provided Metro client is treated as already configured. Pass `configureMetro: true` to add JSFS-Solid's default `metro-oidc` and `metro-oldm` middleware stack.
+`jsfs-solid` no longer exports a higher-level `solidClient`. Application code composes Metro, Metro-OIDC, Lading, and JSFS-Solid directly. A later SimplySolid package can provide application-level setup and discovery conventions.
 
 ## Adapter
 
@@ -58,6 +45,20 @@ const adapter = new SolidAdapter('https://example.pod/storage/', {
 await adapter.write('/notes/hello.txt', 'Hello', { type: 'text/plain' })
 const note = await adapter.read('/notes/hello.txt')
 ```
+
+## Passing an existing Metro client
+
+```js
+import metro from '@muze-nl/metro'
+import { SolidAdapter } from '@muze-labs/jsfs-solid'
+
+const client = metro.client('https://example.pod/storage/')
+const adapter = new SolidAdapter('https://example.pod/storage/', {
+  metroClient: client
+})
+```
+
+A provided Metro client is treated as already configured. Pass `configureMetro: true` to add JSFS-Solid's default `metro-oidc` and `metro-oldm` middleware stack.
 
 ## Package boundary
 

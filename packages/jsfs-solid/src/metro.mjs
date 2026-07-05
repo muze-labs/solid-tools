@@ -3,7 +3,7 @@ import oidc from '@muze-nl/metro-oidc'
 import oldmmw from '@muze-nl/metro-oldm'
 
 export function createSolidMetroClient(input, options = {}) {
-  const providedClient = options.metroClient ?? options.metro
+  const providedClient = options.metroClient ?? options.metro ?? options.client
   let metroClient = providedClient ?? input
 
   if (!(metroClient instanceof metro.Client)) {

@@ -32,7 +32,7 @@ import { lading } from '@muze-labs/lading'
 const client = metro.client('https://pod.example/')
 const solid = lading(client)
 
-await solid.resource('notes/a.txt').put('Hello', { contentType: 'text/plain' })
+await solid.resource('https://pod.example/notes/a.txt').put('Hello', { contentType: 'text/plain' })
 ```
 
 Lading reuses Metro's direct verb methods and `metro.mw.thrower()` middleware instead of defining its own request or error abstraction.
@@ -49,3 +49,7 @@ npm test
 ```
 
 The packages are experimental and are published under the `@muze-labs` namespace.
+
+## Milestone 1 status
+
+The old `solidClient` convenience wrapper has been removed from `jsfs-solid`. That wrapper mixed app-level discovery/composition with the filesystem adapter. New code should compose Metro, Metro-OIDC, Lading, and JSFS-Solid explicitly, while a future SimplySolid package can own higher-level application setup.

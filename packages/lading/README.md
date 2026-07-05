@@ -6,6 +6,11 @@ It handles Solid resource and container operations, header helpers, safe write o
 
 It does **not** handle authentication, RDF parsing, file-system APIs, OLDM object modelling, or application conventions.
 
+Docs:
+
+- [Tutorial](docs/tutorial.md)
+- [Reference](docs/reference.md)
+
 ```js
 import metro from '@muze-nl/metro'
 import { lading } from '@muze-labs/lading'

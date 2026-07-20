@@ -156,6 +156,8 @@ Logical `resource()` parts are the app-facing concept. Source factories are lowe
 
 Solid-backed replicas can implement the same contract by reading/writing Turtle through Lading and Metro-OLDM. IndexedDB-backed replicas can store OLDMed graph documents directly and serialize to Turtle when asked.
 
+The first persistent local replica should be `local.indexedDB(name, options)`. It stores one OLDMed graph document per key in a browser IndexedDB object store, while still exposing the same `load()`, `save(document)`, and `turtle()` source contract as `local.memory()`.
+
 The workspace should not care whether the source is backed by:
 
 - Solid over HTTP;

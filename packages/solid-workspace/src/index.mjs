@@ -166,6 +166,86 @@ export const local = {
         })
       }
     })
+  },
+  indexedDB(nameOrOptions, options = {}) {
+    const config = typeof nameOrOptions === 'string'
+      ? { ...options, name: nameOrOptions }
+      : { ...nameOrOptions }
+    const databaseName = config.name ?? config.databaseName ?? config.database
+    if (!databaseName) {
+      throw new TypeError('solid-workspace: IndexedDB database name is required')
+    }
+
+    const storeName = config.store ?? config.storeName ?? 'resources'
+    const key = config.key ?? config.id ?? 'default'
+    const id = config.id ?? `${databaseName}:${key}`
+    const url = config.url ?? `indexeddb://${encodeURIComponent(databaseName)}/${encodeURIComponent(storeName)}/${encodeURIComponent(key)}`
+    const databaseVersion = config.databaseVersion ?? 1
+    const initialDocument = config.document === undefined ? null : graphDocumentFrom(config.document)
+    const indexedDBFactory = config.indexedDB
+    const sourceConfig = { ...config }
+    delete sourceConfig.indexedDB
+    delete sourceConfig.document
+    delete sourceConfig.databaseVersion
+
+    async function loadDocument() {
+      const database = await openIndexedDatabase({
+        indexedDB: indexedDBFactory,
+        name: databaseName,
+        version: databaseVersion,
+        storeName
+      })
+      try {
+        const entry = await indexedDBGet(database, storeName, key)
+        if (entry?.document) {
+          return graphDocumentFrom(entry.document)
+        }
+        return graphDocumentFrom(initialDocument)
+      } finally {
+        database.close?.()
+      }
+    }
+
+    return graphResource({
+      ...sourceConfig,
+      id,
+      url,
+      local: true,
+      type: 'local-indexeddb',
+      async load() {
+        return cloneGraphDocument(await loadDocument())
+      },
+      async save(value) {
+        const document = graphDocumentFrom(value)
+        const database = await openIndexedDatabase({
+          indexedDB: indexedDBFactory,
+          name: databaseName,
+          version: databaseVersion,
+          storeName
+        })
+        try {
+          await indexedDBPut(database, storeName, {
+            key,
+            document: cloneGraphDocument(document),
+            updatedAt: new Date().toISOString()
+          })
+        } finally {
+          database.close?.()
+        }
+        return {
+          ok: true,
+          status: 'saved',
+          sourceUrl: url,
+          document: cloneGraphDocument(document)
+        }
+      },
+      async turtle() {
+        return graphDocumentToTurtle(await loadDocument(), {
+          url,
+          prefixes: config.prefixes
+        })
+      }
+    })
   }
 }
 
@@ -1630,6 +1710,53 @@ async function saveGraphDocument(workspace, source, document, options = {}) {
 
   assertSolidClient(workspace)
   return workspace.solid.resource(source.url).put(document, writeOptions(source, options))
+}
+
+function openIndexedDatabase({ indexedDB, name, version, storeName }) {
+  const factory = indexedDB ?? globalThis.indexedDB
+  if (!factory) {
+    throw new TypeError('solid-workspace: IndexedDB is not available')
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = factory.open(name, version)
+    request.onerror = () => reject(request.error ?? new Error(`solid-workspace: could not open IndexedDB database ${name}`))
+    request.onblocked = () => reject(new Error(`solid-workspace: IndexedDB database ${name} is blocked`))
+    request.onupgradeneeded = () => {
+      const database = request.result
+      if (!objectStoreExists(database.objectStoreNames, storeName)) {
+        database.createObjectStore(storeName, { keyPath: 'key' })
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+  })
+}
+
+function indexedDBGet(database, storeName, key) {
+  return indexedDBRequest(
+    database.transaction(storeName, 'readonly').objectStore(storeName).get(key)
+  )
+}
+
+function indexedDBPut(database, storeName, value) {
+  return indexedDBRequest(
+    database.transaction(storeName, 'readwrite').objectStore(storeName).put(value)
+  )
+}
+
+function indexedDBRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.onerror = () => reject(request.error ?? new Error('solid-workspace: IndexedDB request failed'))
+    request.onsuccess = () => resolve(request.result)
+  })
+}
+
+function objectStoreExists(objectStoreNames, storeName) {
+  if (typeof objectStoreNames?.contains === 'function') {
+    return objectStoreNames.contains(storeName)
+  }
+
+  return values(objectStoreNames).includes(storeName)
 }
 
 function assertSolidClient(workspace) {

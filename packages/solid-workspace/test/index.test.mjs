@@ -356,6 +356,45 @@ test('local memory resources open without a Solid client and export Turtle', asy
   assert.match(turtle, /Ada/)
 })
 
+test('local indexedDB resources persist OLDMed documents across workspaces', async () => {
+  const indexedDB = createIndexedDBDouble()
+  const ada = {
+    id: 'urn:contact:ada',
+    rdf$type: 'schema$Person',
+    schema$name: 'Ada'
+  }
+
+  const first = workspace()
+    .add(resource('contacts', {
+      local: local.indexedDB('solid-workspace-test', {
+        id: 'contacts:local',
+        key: 'contacts',
+        indexedDB,
+        prefixes: { schema: 'https://schema.org/' }
+      })
+    }))
+
+  await first.open('contacts')
+  await first.createIn('contacts', ada)
+
+  const second = workspace()
+    .add(resource('contacts', {
+      local: local.indexedDB('solid-workspace-test', {
+        id: 'contacts:local',
+        key: 'contacts',
+        indexedDB,
+        prefixes: { schema: 'https://schema.org/' }
+      })
+    }))
+
+  await second.open('contacts')
+  const turtle = await second.resources[0].local.turtle()
+
+  assert.deepEqual(second.dataset('contacts').subjects, [ada])
+  assert.match(turtle, /schema:Person/)
+  assert.match(turtle, /Ada/)
+})
+
 test('workspace can add a Solid source later and sync local data into it', async () => {
   const localContact = {
     id: 'urn:contact:local',
@@ -673,6 +712,88 @@ test('read-only and validation failures are reported in saveAll statuses', async
     }
   )
 })
+
+function createIndexedDBDouble() {
+  const databases = new Map()
+
+  return {
+    open(name, version) {
+      const request = {}
+      queueMicrotask(() => {
+        let state = databases.get(name)
+        const upgradeNeeded = !state
+        if (!state) {
+          state = {
+            version,
+            stores: new Map()
+          }
+          databases.set(name, state)
+        }
+        request.result = createDatabaseDouble(state)
+        if (upgradeNeeded) {
+          request.onupgradeneeded?.({ target: request })
+        }
+        request.onsuccess?.({ target: request })
+      })
+      return request
+    }
+  }
+}
+
+function createDatabaseDouble(state) {
+  return {
+    objectStoreNames: {
+      contains(name) {
+        return state.stores.has(name)
+      }
+    },
+    createObjectStore(name, options = {}) {
+      const store = {
+        keyPath: options.keyPath ?? 'key',
+        values: new Map()
+      }
+      state.stores.set(name, store)
+      return createObjectStoreDouble(store)
+    },
+    transaction(name) {
+      const store = state.stores.get(name)
+      if (!store) {
+        throw new Error(`missing object store ${name}`)
+      }
+      return {
+        objectStore() {
+          return createObjectStoreDouble(store)
+        }
+      }
+    },
+    close() {}
+  }
+}
+
+function createObjectStoreDouble(store) {
+  return {
+    get(key) {
+      return indexedDBSuccess(cloneJson(store.values.get(key)))
+    },
+    put(value) {
+      store.values.set(value[store.keyPath], cloneJson(value))
+      return indexedDBSuccess(value)
+    }
+  }
+}
+
+function indexedDBSuccess(value) {
+  const request = {}
+  queueMicrotask(() => {
+    request.result = value
+    request.onsuccess?.({ target: request })
+  })
+  return request
+}
+
+function cloneJson(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value))
+}
 
 function createSolidDouble({ resources = {}, containers = {}, contexts = {} } = {}) {
   const calls = []

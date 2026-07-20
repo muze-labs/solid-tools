@@ -46,6 +46,7 @@ solid.container(url, options)
 solid.client(ladingClient)
 graph.resource(options)
 local.memory(id, options)
+local.indexedDB(name, options)
 resource(id, { local, remote })
 ```
 
@@ -104,7 +105,7 @@ graph.resource({
 })
 ```
 
-`local.memory()` is the first convenience factory:
+`local.memory()` is the simplest convenience factory:
 
 ```js
 const localNotes = local.memory('local-notes', {
@@ -128,12 +129,43 @@ const ws = workspace({
 await ws.load()
 ```
 
+`local.indexedDB()` stores an OLDMed graph document in browser IndexedDB:
+
+```js
+const localNotes = local.indexedDB('margin-notes', {
+  id: 'notes:local',
+  key: 'notes',
+  prefixes,
+  document: {
+    format: 'oldmed-graph',
+    version: 1,
+    prefixes,
+    subjects: []
+  }
+})
+```
+
+Options:
+
+- `id`: stable source id. Defaults to `${name}:${key}`.
+- `key`: document key inside the object store. Defaults to `id` or `default`.
+- `store` or `storeName`: object store name. Defaults to `resources`.
+- `databaseVersion`: IndexedDB schema version. Defaults to `1`.
+- `document`: initial graph document returned when the key is not stored yet.
+- `prefixes`: prefixes used when exporting Turtle.
+
+The factory uses `globalThis.indexedDB` in the browser. Tests or non-browser callers may pass an `indexedDB` implementation explicitly.
+
 For PWA-style apps, prefer a logical resource with a local working copy:
 
 ```js
 const ws = workspace()
   .add(resource('notes', {
-    local: localNotes
+    local: local.indexedDB('margin-notes', {
+      id: 'notes:local',
+      key: 'notes',
+      prefixes
+    })
   }))
 
 await ws.open('notes')

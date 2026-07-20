@@ -1,5 +1,6 @@
 import FileSystem from '@muze-nl/jsfs/src/FileSystem.mjs'
 import SolidAdapter from './SolidAdapter.js'
+import { authorizePopup, popupHandleRedirect } from './metro.mjs'
 
 function adapterInput(rootUrl, options = {}) {
   if (typeof rootUrl === 'object' && rootUrl !== null) {
@@ -28,11 +29,13 @@ export function solidFs(rootUrl, options = {}) {
 }
 
 export { SolidAdapter }
-export { createSolidMetroClient, oidcIdToken } from './metro.mjs'
+export { createSolidMetroClient, oidcIdToken, authorizePopup, popupHandleRedirect } from './metro.mjs'
 export { filename, isAbsoluteUrl, joinPath, normalizePath, pathFromUrl, resolveSolidUrl } from './paths.mjs'
 
 export default {
   SolidAdapter,
+  authorizePopup,
   createSolidAdapter,
+  popupHandleRedirect,
   solidFs
 }

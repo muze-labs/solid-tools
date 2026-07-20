@@ -1,5 +1,6 @@
 import metro from '@muze-nl/metro'
 import oidc from '@muze-nl/metro-oidc'
+import { authorizePopup, popupHandleRedirect } from '@muze-nl/metro-oauth2'
 import oldmmw from '@muze-nl/metro-oldm'
 
 export function createSolidMetroClient(input, options = {}) {
@@ -33,3 +34,5 @@ export function oidcIdToken(issuer) {
   }
   return null
 }
+
+export { authorizePopup, popupHandleRedirect }

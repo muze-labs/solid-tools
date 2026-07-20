@@ -46,6 +46,10 @@ import { simplySolid } from '@muze-labs/simplysolid'
 const solidService = simplySolid({
   solid: solidClient,
   storage: 'https://pod.example/storage/',
+  app: {
+    id: 'https://apps.example/contacts/',
+    slug: 'contacts'
+  },
   data: {
     contacts: {
       path: 'contacts/',
@@ -55,9 +59,21 @@ const solidService = simplySolid({
 })
 ```
 
-The `contacts/` path is resolved relative to the storage root and becomes a Solid container source.
+The `contacts/` path is resolved relative to the storage root and becomes a Solid container source. The app settings container defaults to `apps/contacts/`, with settings at `apps/contacts/settings.ttl`.
 
-## 4. Install it on a SimplyFlow app
+## 4. Check setup
+
+```js
+const setup = await solidService.checkSetup()
+
+if (setup.state === 'setup-needed') {
+  await solidService.setup()
+}
+```
+
+`setup()` creates missing containers. If a resource exists but cannot be accessed, setup status becomes `repair-needed` so the app can show its own UI or guidance.
+
+## 5. Install it on a SimplyFlow app
 
 ```js
 import { app } from '@muze-labs/simplyflow'
@@ -69,6 +85,7 @@ const contactsApp = app({
   solid: solidService,
   async start() {
     this.solid.install(this)
+    await this.solid.setup()
     await this.solid.sync()
     this.data.contacts = this.solid.data.contacts.items
   },
@@ -98,7 +115,9 @@ HTML can bind to normal SimplyFlow data:
 <button data-simply-command="addContact">Add</button>
 ```
 
-## 5. Read and write through handles
+Setup status is also exposed through `app.data.solid.setup` for normal SimplyFlow rendering.
+
+## 6. Read and write through handles
 
 ```js
 await contactsApp.solid.data.contacts.sync()

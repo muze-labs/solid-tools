@@ -18,11 +18,16 @@ export class SimplySolid {
 
     const normalized = normalizeConfig(config)
 
+    this.solid = normalized.client ?? config.workspace?.solid ?? null
+    this.conventions = normalized.conventions
+    this.settings = normalized.settings
+    this.registrations = normalized.registrations
     this.status = {
       state: 'idle',
       error: null,
       profile: config.profile ?? null,
       storage: normalizeStorage(config.storage),
+      setup: setupStatus('unknown', normalized.conventions, normalized.registrations),
       collections: {}
     }
     this.workspace = config.workspace ?? workspace({
@@ -71,6 +76,72 @@ export class SimplySolid {
       this.status.error = error
       throw error
     }
+  }
+
+  async checkSetup() {
+    if (!this.solid) {
+      this.status.setup = setupStatus('unknown', this.conventions, this.registrations, {
+        error: new Error('simplysolid: setup checks require a Lading client')
+      })
+      return this.status.setup
+    }
+
+    const checks = []
+
+    for (const url of this.conventions.requiredContainers) {
+      checks.push(await checkContainer(this.solid, url))
+    }
+
+    const missing = checks.filter(check => check.status === 'missing')
+    const repair = checks.filter(check => check.status === 'error')
+    const state = repair.length > 0 ? 'repair-needed' : missing.length > 0 ? 'setup-needed' : 'ready'
+
+    this.status.setup = setupStatus(state, this.conventions, this.registrations, {
+      checks,
+      needed: missing,
+      repair
+    })
+
+    return this.status.setup
+  }
+
+  async setup() {
+    const setup = await this.checkSetup()
+
+    if (setup.state === 'ready') {
+      return setup
+    }
+
+    if (setup.state === 'repair-needed') {
+      return setup
+    }
+
+    this.status.setup = {
+      ...setup,
+      state: 'creating'
+    }
+
+    const created = []
+    const repair = []
+
+    for (const item of setup.needed) {
+      try {
+        const response = await this.solid.container(item.url).create()
+        created.push({ ...item, response })
+      } catch (error) {
+        repair.push({ ...item, status: 'error', error })
+      }
+    }
+
+    if (repair.length > 0) {
+      this.status.setup = setupStatus('repair-needed', this.conventions, this.registrations, {
+        created,
+        repair
+      })
+      return this.status.setup
+    }
+
+    return this.checkSetup()
   }
 }
 
@@ -213,10 +284,18 @@ export class SimplySolidCollection {
 
 function normalizeConfig(config) {
   if (config.workspace) {
+    const conventions = setupConventions(config, {
+      sources: config.workspace.sources ?? [],
+      collections: config.workspace.collections ?? {}
+    })
+
     return {
       client: null,
       sources: [],
-      collections: {}
+      collections: {},
+      conventions,
+      settings: settingsFor(config, conventions),
+      registrations: registrationsFor(config, conventions)
     }
   }
 
@@ -240,10 +319,16 @@ function normalizeConfig(config) {
     }
   }
 
+  const sources = [...explicitSources, ...generatedSources]
+  const conventions = setupConventions(config, { sources, collections })
+
   return {
     client,
-    sources: [...explicitSources, ...generatedSources],
-    collections
+    sources,
+    collections,
+    conventions,
+    settings: settingsFor(config, conventions),
+    registrations: registrationsFor(config, conventions)
   }
 }
 
@@ -316,6 +401,147 @@ function firstStorage(storage) {
 function storageUrl(storage) {
   const url = typeof storage === 'string' ? storage : storage?.url ?? storage?.id
   return url && !String(url).endsWith('/') ? `${url}/` : url
+}
+
+function setupConventions(config, normalized) {
+  const storage = firstStorage(config.storage)
+  const appId = config.app?.id ?? config.id ?? defaultAppId()
+  const appSlug = config.app?.slug ?? config.slug ?? slugFrom(appId)
+  const appStorage = ensureSlash(config.appStorage ?? config.setup?.appStorage ?? (
+    storage ? new URL(`apps/${appSlug}/`, storage).href : null
+  ))
+  const settingsUrl = config.settings?.url ?? config.setup?.settingsUrl ?? (
+    appStorage ? new URL('settings.ttl', appStorage).href : null
+  )
+  const sourceContainers = (normalized.sources ?? [])
+    .filter(source => source.kind === 'container')
+    .map(source => source.url)
+  const requiredContainers = unique([
+    appStorage,
+    ...sourceContainers,
+    ...(config.setup?.containers ?? [])
+  ].filter(Boolean).map(ensureSlash))
+
+  return {
+    appId,
+    appSlug,
+    appStorage,
+    settingsUrl,
+    requiredContainers
+  }
+}
+
+function settingsFor(config, conventions) {
+  return {
+    url: conventions.settingsUrl,
+    data: config.settings?.data ?? {},
+    shape: config.settings?.shape ?? null
+  }
+}
+
+function registrationsFor(config, conventions) {
+  if (config.registrations) {
+    return config.registrations
+  }
+
+  const data = config.data ?? config.collections ?? {}
+
+  return Object.entries(data)
+    .map(([name, descriptor]) => {
+      if (!descriptor?.shape?.class) {
+        return null
+      }
+
+      const sourceUrl = descriptor.path && conventions.appStorage
+        ? new URL(descriptor.path, firstStorage(config.storage)).href
+        : descriptor.url ?? null
+
+      return {
+        collection: name,
+        forClass: descriptor.shape.class,
+        instanceContainer: sourceUrl?.endsWith('/') ? sourceUrl : null,
+        instance: sourceUrl && !sourceUrl.endsWith('/') ? sourceUrl : null,
+        private: descriptor.private ?? true,
+        registered: false
+      }
+    })
+    .filter(Boolean)
+}
+
+function setupStatus(state, conventions, registrations, options = {}) {
+  return {
+    state,
+    needed: options.needed ?? [],
+    repair: options.repair ?? [],
+    checks: options.checks ?? [],
+    created: options.created ?? [],
+    error: options.error ?? null,
+    appStorage: conventions.appStorage,
+    settingsUrl: conventions.settingsUrl,
+    registrations
+  }
+}
+
+async function checkContainer(client, url) {
+  try {
+    const response = await client.container(url).head()
+    const status = response?.status ?? 200
+
+    if (status === 404) {
+      return { url, status: 'missing', response }
+    }
+
+    if (status >= 400) {
+      return { url, status: 'error', response }
+    }
+
+    return { url, status: 'ready', response }
+  } catch (error) {
+    const status = error.cause?.status ?? error.response?.status
+
+    if (status === 404) {
+      return { url, status: 'missing', error }
+    }
+
+    return { url, status: 'error', error }
+  }
+}
+
+function defaultAppId() {
+  const location = globalThis.location?.href
+
+  if (!location) {
+    return 'app'
+  }
+
+  const url = new URL(location)
+  url.hash = ''
+  return url.href
+}
+
+function slugFrom(value) {
+  const input = String(value)
+  let source = input
+
+  try {
+    const url = new URL(input)
+    source = url.pathname.split('/').filter(Boolean).at(-1) ?? url.hostname
+  } catch {
+    source = input
+  }
+
+  return source
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'app'
+}
+
+function ensureSlash(url) {
+  return url && !String(url).endsWith('/') ? `${url}/` : url
+}
+
+function unique(values) {
+  return [...new Set(values)]
 }
 
 export default simplySolid

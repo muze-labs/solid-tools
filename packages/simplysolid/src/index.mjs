@@ -2,6 +2,8 @@ export const packageName = '@muze-labs/simplysolid'
 
 import {
   collection as workspaceCollection,
+  local as workspaceLocal,
+  resource as workspaceResource,
   solid,
   workspace
 } from '@muze-labs/solid-workspace'
@@ -28,13 +30,16 @@ export class SimplySolid {
       profile: config.profile ?? null,
       storage: normalizeStorage(config.storage),
       setup: setupStatus('unknown', normalized.conventions, normalized.registrations),
-      collections: {}
+      collections: {},
+      resources: {}
     }
     this.workspace = config.workspace ?? workspace({
       solid: normalized.client,
       sources: normalized.sources,
+      resources: normalized.resources,
       collections: normalized.collections
     })
+    this.status.resources = this.workspace.status.resources
     this.data = Object.fromEntries(
       Object.entries(this.workspace.collections).map(([name, collection]) => [
         name,
@@ -57,12 +62,37 @@ export class SimplySolid {
     return this
   }
 
+  async open(options = {}) {
+    this.status.state = 'opening'
+    this.status.error = null
+
+    try {
+      await this.workspace.open(options)
+
+      for (const handle of Object.values(this.data)) {
+        handle.refresh()
+      }
+
+      this.status.state = 'ready'
+      this.status.lastOpen = new Date()
+      return this.data
+    } catch (error) {
+      this.status.state = 'error'
+      this.status.error = error
+      throw error
+    }
+  }
+
   async sync(options = {}) {
+    if (isResourceSyncRequest(this.workspace, options)) {
+      return this.syncResources(options)
+    }
+
     this.status.state = 'syncing'
     this.status.error = null
 
     try {
-      await this.workspace.load(options)
+      await this.workspace.open(options)
 
       for (const handle of Object.values(this.data)) {
         handle.refresh()
@@ -80,6 +110,43 @@ export class SimplySolid {
 
   dataset(options = {}) {
     return this.workspace.dataset(options)
+  }
+
+  async connect(options = {}) {
+    this.status.state = 'connecting'
+    this.status.error = null
+
+    try {
+      const client = options.solid ?? options.lading ?? options.client
+      if (client) {
+        this.solid = client
+        this.workspace.setClient(client)
+      }
+
+      const resources = connectionResources(options)
+      const opened = []
+      for (const [name, descriptor] of Object.entries(resources)) {
+        const part = remoteResourcePart(name, descriptor, this)
+        this.workspace.add(part)
+        opened.push(name)
+      }
+
+      if (options.open !== false && opened.length > 0) {
+        await this.workspace.open({ resources: opened })
+      }
+
+      for (const handle of Object.values(this.data)) {
+        handle.refresh()
+      }
+
+      this.status.state = 'ready'
+      this.status.lastConnect = new Date()
+      return this
+    } catch (error) {
+      this.status.state = 'error'
+      this.status.error = error
+      throw error
+    }
   }
 
   async syncResources(options = {}) {
@@ -196,9 +263,7 @@ export class SimplySolidCollection {
     this.status.error = null
 
     try {
-      await this.solid.workspace.load({
-        sources: this.collection.descriptor.sources
-      })
+      await this.solid.workspace.open(this.collection.descriptor.sources)
       return this.refresh()
     } catch (error) {
       this.status.state = 'error'
@@ -311,12 +376,14 @@ function normalizeConfig(config) {
   if (config.workspace) {
     const conventions = setupConventions(config, {
       sources: config.workspace.sources ?? [],
+      resources: config.workspace.resources ?? [],
       collections: config.workspace.collections ?? {}
     })
 
     return {
       client: null,
       sources: [],
+      resources: [],
       collections: {},
       conventions,
       settings: settingsFor(config, conventions),
@@ -326,14 +393,17 @@ function normalizeConfig(config) {
 
   const client = config.solid ?? config.lading ?? config.client
 
-  if (!client) {
-    throw new TypeError('simplysolid: a Lading client or workspace is required')
-  }
-
   const explicitSources = config.sources ?? []
+  const explicitResources = config.resources ?? []
   const data = config.data ?? config.collections ?? {}
   const generatedSources = []
+  const generatedResources = []
   const collections = {}
+  const hasLocalFirstData = Object.values(data).some(descriptor => isLocalFirstDescriptor(null, descriptor, config))
+
+  if (!client && explicitSources.length === 0 && explicitResources.length === 0 && !hasLocalFirstData) {
+    throw new TypeError('simplysolid: a Lading client, workspace, source, resource, or local-first data config is required')
+  }
 
   for (const [name, descriptor] of Object.entries(data)) {
     const normalized = normalizeCollection(name, descriptor, config)
@@ -342,14 +412,19 @@ function normalizeConfig(config) {
     if (normalized.source) {
       generatedSources.push(normalized.source)
     }
+    if (normalized.resource) {
+      generatedResources.push(normalized.resource)
+    }
   }
 
   const sources = [...explicitSources, ...generatedSources]
-  const conventions = setupConventions(config, { sources, collections })
+  const resources = [...explicitResources, ...generatedResources]
+  const conventions = setupConventions(config, { sources, resources, collections })
 
   return {
     client,
     sources,
+    resources,
     collections,
     conventions,
     settings: settingsFor(config, conventions),
@@ -365,7 +440,26 @@ function normalizeCollection(name, descriptor = {}, config = {}) {
   if (descriptor.kind === 'collection' && !descriptor.path) {
     return {
       collection: descriptor,
-      source: null
+      source: null,
+      resource: null
+    }
+  }
+
+  if (isLocalFirstDescriptor(name, descriptor, config)) {
+    const resourceId = descriptor.resourceId ?? descriptor.resource ?? descriptor.source ?? name
+    const resource = workspaceResource(resourceId, {
+      local: localSourceForResource(name, descriptor, config),
+      remote: remoteSourceForResource(name, descriptor, config, resourceId)
+    })
+
+    return {
+      source: null,
+      resource,
+      collection: workspaceCollection({
+        ...descriptor,
+        sources: descriptor.sources ?? [resourceId],
+        createIn: descriptor.createIn ?? resourceId
+      })
     }
   }
 
@@ -378,12 +472,140 @@ function normalizeCollection(name, descriptor = {}, config = {}) {
 
   return {
     source,
+    resource: null,
     collection: workspaceCollection({
       ...descriptor,
       sources,
       createIn
     })
   }
+}
+
+function isLocalFirstDescriptor(_name, descriptor = {}, config = {}) {
+  if (!descriptor || typeof descriptor !== 'object') {
+    return false
+  }
+
+  return Boolean(
+    descriptor.local
+    || descriptor.localFirst
+    || (
+      config.localFirst
+      && (
+        descriptor.kind === 'resource'
+        || descriptor.resource === true
+        || (descriptor.path && !String(descriptor.path).endsWith('/'))
+      )
+    )
+  )
+}
+
+function localSourceForResource(name, descriptor = {}, config = {}) {
+  const localConfig = descriptor.local === true
+    ? {}
+    : descriptor.local ?? {}
+
+  if (localConfig?.workspacePart === 'source') {
+    return localConfig
+  }
+
+  const indexedDBName = typeof localConfig.indexedDB === 'string'
+    ? localConfig.indexedDB
+    : null
+  const indexedDBFactory = localConfig.indexedDB && typeof localConfig.indexedDB !== 'string'
+    ? localConfig.indexedDB
+    : localConfig.indexedDBFactory
+
+  const databaseName = indexedDBName
+    ?? localConfig.name
+    ?? localConfig.databaseName
+    ?? localConfig.database
+    ?? config.local?.indexedDB
+    ?? config.local?.name
+    ?? slugFrom(config.app?.slug ?? config.slug ?? config.app?.id ?? config.id ?? defaultAppId())
+
+  return workspaceLocal.indexedDB(databaseName, {
+    ...localConfig,
+    id: localConfig.id ?? `${descriptor.resourceId ?? descriptor.resource ?? descriptor.source ?? name}:local`,
+    key: localConfig.key ?? name,
+    prefixes: localConfig.prefixes ?? descriptor.prefixes,
+    document: localConfig.document ?? descriptor.document,
+    indexedDB: indexedDBFactory
+  })
+}
+
+function remoteSourceForResource(name, descriptor = {}, config = {}, resourceId = name) {
+  if (descriptor.remote === false) {
+    return null
+  }
+
+  const remoteConfig = descriptor.remote === true
+    ? {}
+    : descriptor.remote ?? {}
+
+  if (remoteConfig?.workspacePart === 'source') {
+    return remoteConfig
+  }
+
+  const url = remoteConfig.url
+    ?? remoteConfig.resourceUrl
+    ?? (descriptor.path && firstStorage(config.storage) ? new URL(descriptor.path, firstStorage(config.storage)).href : null)
+
+  if (!url) {
+    return null
+  }
+
+  return solid.turtleResource(url, {
+    id: remoteConfig.id ?? descriptor.remoteSource ?? `${resourceId}:solid`,
+    readOnly: Boolean(remoteConfig.readOnly ?? descriptor.readOnly),
+    shape: remoteConfig.shape ?? descriptor.shape ?? null,
+    options: remoteConfig.options ?? descriptor.options ?? {},
+    writeOptions: remoteConfig.writeOptions ?? descriptor.writeOptions
+  })
+}
+
+function connectionResources(options = {}) {
+  if (options.resourceUrl) {
+    return {
+      [options.resource ?? options.name ?? 'default']: {
+        ...options,
+        url: options.resourceUrl
+      }
+    }
+  }
+
+  return options.resources ?? options.data ?? {}
+}
+
+function remoteResourcePart(name, descriptor = {}, service) {
+  const config = typeof descriptor === 'string'
+    ? { url: descriptor }
+    : descriptor
+  const resourceId = config.resourceId ?? config.resource ?? name
+  const url = config.url
+    ?? config.resourceUrl
+    ?? (config.path && firstStorage(service.status.storage) ? new URL(config.path, firstStorage(service.status.storage)).href : null)
+
+  if (!url) {
+    throw new TypeError(`simplysolid: connected resource ${name} needs a url, resourceUrl, or path`)
+  }
+
+  return workspaceResource(resourceId, {
+    remote: solid.turtleResource(url, {
+      id: config.id ?? config.source ?? `${resourceId}:solid`,
+      readOnly: Boolean(config.readOnly),
+      shape: config.shape ?? null,
+      options: config.options ?? {},
+      writeOptions: config.writeOptions
+    })
+  })
+}
+
+function isResourceSyncRequest(currentWorkspace, options) {
+  return Boolean(
+    options?.workspacePart === 'resource'
+    || (typeof options === 'string' && currentWorkspace.resourceById.has(options))
+  )
 }
 
 function sourceFromPath(name, descriptor, config) {

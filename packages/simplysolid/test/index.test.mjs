@@ -229,6 +229,121 @@ test('dataset and syncResources delegate open-world resource sync through the wo
   assert.deepEqual(status.document.subjects, [remote, local])
 })
 
+test('local-first collections open and persist through IndexedDB without Solid', async () => {
+  const indexedDB = createIndexedDBDouble()
+  const ContactShape = contactShape()
+  const service = simplySolid({
+    localFirst: true,
+    app: {
+      slug: 'contacts'
+    },
+    data: {
+      contacts: {
+        kind: 'resource',
+        local: {
+          database: 'simplysolid-test',
+          key: 'contacts',
+          indexedDB
+        },
+        shape: ContactShape
+      }
+    }
+  })
+
+  await service.open()
+  const ada = await service.data.contacts.create({
+    id: 'urn:contact:ada',
+    rdf$type: 'schema$Person',
+    schema$name: 'Ada'
+  })
+
+  assert.deepEqual(service.data.contacts.list(), [ada])
+  assert.equal(service.workspace.status.resources.contacts.state, 'ready')
+
+  const next = simplySolid({
+    localFirst: true,
+    app: {
+      slug: 'contacts'
+    },
+    data: {
+      contacts: {
+        kind: 'resource',
+        local: {
+          database: 'simplysolid-test',
+          key: 'contacts',
+          indexedDB
+        },
+        shape: ContactShape
+      }
+    }
+  })
+
+  await next.open()
+
+  assert.deepEqual(next.data.contacts.list(), [ada])
+  assert.deepEqual(next.dataset('contacts').subjects, [ada])
+})
+
+test('connect adds a remote replica and syncs a local-first collection', async () => {
+  const indexedDB = createIndexedDBDouble()
+  const ContactShape = contactShape()
+  const localContact = {
+    id: 'urn:contact:local',
+    rdf$type: 'schema$Person',
+    schema$name: 'Local'
+  }
+  const remoteContact = {
+    id: 'urn:contact:remote',
+    rdf$type: 'schema$Person',
+    schema$name: 'Remote'
+  }
+  const savedLocalContact = {
+    ...localContact,
+    schema$email: []
+  }
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/storage/contacts.ttl': graphDocument([remoteContact])
+    }
+  })
+  const service = simplySolid({
+    localFirst: true,
+    data: {
+      contacts: {
+        kind: 'resource',
+        local: {
+          database: 'simplysolid-test-connect',
+          key: 'contacts',
+          indexedDB
+        },
+        shape: ContactShape
+      }
+    }
+  })
+
+  await service.open()
+  await service.data.contacts.create(localContact)
+  await service.connect({
+    solid: client,
+    resources: {
+      contacts: {
+        url: 'https://pod.example/storage/contacts.ttl'
+      }
+    }
+  })
+  const status = await service.sync('contacts')
+
+  assert.equal(status.status, 'synced')
+  assert.deepEqual(status.document.subjects, [remoteContact, savedLocalContact])
+  assert.deepEqual(service.data.contacts.list(), [remoteContact, savedLocalContact])
+  assert.equal(service.status.resources.contacts.state, 'ready')
+  assert.deepEqual(client.calls, [
+    ['resource.get', 'https://pod.example/storage/contacts.ttl'],
+    ['resource.get', 'https://pod.example/storage/contacts.ttl'],
+    ['resource.put', 'https://pod.example/storage/contacts.ttl', status.document]
+  ])
+})
+
 test('collection create validates through oldm-shape before writing', async () => {
   const client = createSolidDouble()
   const service = simplySolid({
@@ -293,6 +408,88 @@ function contactShape() {
       schema$email: field.string({ many: true, default: () => [] })
     }
   })
+}
+
+function createIndexedDBDouble() {
+  const databases = new Map()
+
+  return {
+    open(name, version) {
+      const request = {}
+      queueMicrotask(() => {
+        let state = databases.get(name)
+        const upgradeNeeded = !state
+        if (!state) {
+          state = {
+            version,
+            stores: new Map()
+          }
+          databases.set(name, state)
+        }
+        request.result = createDatabaseDouble(state)
+        if (upgradeNeeded) {
+          request.onupgradeneeded?.({ target: request })
+        }
+        request.onsuccess?.({ target: request })
+      })
+      return request
+    }
+  }
+}
+
+function createDatabaseDouble(state) {
+  return {
+    objectStoreNames: {
+      contains(name) {
+        return state.stores.has(name)
+      }
+    },
+    createObjectStore(name, options = {}) {
+      const store = {
+        keyPath: options.keyPath ?? 'key',
+        values: new Map()
+      }
+      state.stores.set(name, store)
+      return createObjectStoreDouble(store)
+    },
+    transaction(name) {
+      const store = state.stores.get(name)
+      if (!store) {
+        throw new Error(`missing object store ${name}`)
+      }
+      return {
+        objectStore() {
+          return createObjectStoreDouble(store)
+        }
+      }
+    },
+    close() {}
+  }
+}
+
+function createObjectStoreDouble(store) {
+  return {
+    get(key) {
+      return indexedDBSuccess(cloneJson(store.values.get(key)))
+    },
+    put(value) {
+      store.values.set(value[store.keyPath], cloneJson(value))
+      return indexedDBSuccess(value)
+    }
+  }
+}
+
+function indexedDBSuccess(value) {
+  const request = {}
+  queueMicrotask(() => {
+    request.result = value
+    request.onsuccess?.({ target: request })
+  })
+  return request
+}
+
+function cloneJson(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value))
 }
 
 function createSolidDouble({

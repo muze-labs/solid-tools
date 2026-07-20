@@ -1197,7 +1197,7 @@ export class WorkspaceCollection {
   list() {
     return this.workspace.records
       .filter(record => !record.deleted)
-      .filter(record => collectionIncludesRecord(this.descriptor, record))
+      .filter(record => collectionIncludesRecord(this.workspace, this.descriptor, record))
       .map(record => record.object)
   }
 
@@ -1238,7 +1238,7 @@ export class WorkspaceCollection {
 
   saveAll() {
     return this.workspace.saveAll(this.workspace.records.filter(record => (
-      collectionIncludesRecord(this.descriptor, record)
+      collectionIncludesRecord(this.workspace, this.descriptor, record)
     )))
   }
 }
@@ -1455,12 +1455,20 @@ function recordBelongsToSources(record, sources) {
   return Boolean(source && sources.some(candidate => candidate === source || candidate.id === source.id))
 }
 
-function collectionIncludesRecord(descriptor, record) {
+function collectionIncludesRecord(currentWorkspace, descriptor, record) {
   if (descriptor.sources.length > 0) {
-    const sourceIds = new Set(descriptor.sources)
     const sourceId = record.source?.parent?.id ?? record.source?.id
+    const matches = descriptor.sources.some(collectionSource => {
+      const logicalResource = currentWorkspace.resourceById.get(collectionSource)
+      if (logicalResource) {
+        const preferredSource = logicalResource.local ?? logicalResource.remote
+        return preferredSource?.id === sourceId
+      }
 
-    if (!sourceIds.has(sourceId)) {
+      return collectionSource === sourceId
+    })
+
+    if (!matches) {
       return false
     }
   }

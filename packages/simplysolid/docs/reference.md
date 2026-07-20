@@ -37,15 +37,17 @@ const solidService = simplySolid({
 
 Config:
 
-- `solid`, `lading`, or `client`: a Lading client.
+- `solid`, `lading`, or `client`: a Lading client. Optional for local-first configurations that can start from local replicas.
 - `workspace`: an existing Solid Workspace instance.
 - `storage`: storage root URL or storage record.
+- `localFirst`: enables local-first defaults for resource descriptors.
 - `app.id`: stable app identifier. Defaults to the current page URL without the hash when available.
 - `app.slug`: URL-safe app storage segment. Defaults from `app.id`.
 - `appStorage`: explicit app storage container URL.
 - `settings.url`: explicit app settings resource URL.
 - `profile`: optional current profile data.
 - `sources`: explicit Solid Workspace source descriptors.
+- `resources`: explicit Solid Workspace logical resource descriptors.
 - `data` or `collections`: named collection descriptors.
 
 ## Collection descriptors
@@ -57,6 +59,8 @@ Config:
   source: 'contacts',
   sources: ['contacts'],
   createIn: 'contacts',
+  local: false,
+  remote: {},
   readOnly: false,
   options: {},
   writeOptions: {}
@@ -64,6 +68,57 @@ Config:
 ```
 
 When `path` is present, SimplySolid resolves it relative to `storage` and creates a Solid Workspace source. Paths ending in `/` become container sources; other paths become resource sources.
+
+When `local`, `localFirst`, or global `localFirst` is used with a resource descriptor, SimplySolid creates a Solid Workspace logical resource. The collection then uses the resource id as both `sources` and `createIn`, so writes commit to the local replica first.
+
+```js
+const service = simplySolid({
+  localFirst: true,
+  app: {
+    slug: 'margin-notes'
+  },
+  data: {
+    notes: {
+      kind: 'resource',
+      local: {
+        indexedDB: 'margin-notes',
+        key: 'notes'
+      },
+      shape: NoteShape
+    }
+  }
+})
+
+await service.open()
+await service.data.notes.create(note)
+```
+
+Local replica options:
+
+- `indexedDB`: database name.
+- `database`, `databaseName`, or `name`: alternate database name fields.
+- `key`: document key inside the local object store.
+- `store` or `storeName`: object store name. Defaults to `resources`.
+- `id`: local source id. Defaults to `${resourceId}:local`.
+- `document`: initial OLDMed graph document.
+- `prefixes`: prefixes used when exporting Turtle.
+
+After Solid discovery or login, attach a remote replica:
+
+```js
+await service.connect({
+  solid: ladingClient,
+  resources: {
+    notes: {
+      url: notesResourceUrl
+    }
+  }
+})
+
+await service.sync('notes')
+```
+
+`connect()` does not perform WebID discovery or OIDC itself. It accepts the already-created Lading client and the remote resource URLs discovered by the application or another helper.
 
 `shape` is passed to Solid Workspace, which validates through oldm-shape before writes.
 
@@ -73,9 +128,13 @@ When `path` is present, SimplySolid resolves it relative to `storage` and create
 const service = simplySolid(config)
 
 service.install(app)
+await service.open()
 await service.sync()
 service.dataset()
+service.dataset('notes')
 await service.syncResources({ from: ['local'], into: 'remote' })
+await service.sync('notes')
+await service.connect({ solid, resources })
 await service.checkSetup()
 await service.setup()
 
@@ -88,11 +147,15 @@ service.data.contacts
 
 `install(app)` assigns `app.solid = service`. If `app.data` exists, it also assigns `app.data.solid = service.status`.
 
-`sync()` loads all workspace sources and refreshes collection handles.
+`open()` opens the workspace tolerantly and refreshes collection handles. This is the preferred local-first startup method.
 
-`dataset()` returns the Solid Workspace open-world graph document for selected sources.
+`sync()` with no arguments keeps the older load-and-refresh behavior, now using tolerant workspace open. `sync('notes')` delegates to logical resource sync.
+
+`dataset()` returns the Solid Workspace open-world graph document for selected sources or logical resources.
 
 `syncResources()` delegates to Solid Workspace resource sync, then refreshes collection handles. The first sync strategy is additive: it preserves known subjects and facts, but does not treat missing facts as deletions.
+
+`connect()` sets or replaces the Lading client, attaches remote replicas for named logical resources, opens them by default, and refreshes collection handles.
 
 `checkSetup()` checks required containers and updates `service.status.setup`.
 
@@ -108,6 +171,7 @@ Status shape:
   storage,
   setup,
   collections,
+  resources,
   lastSync
 }
 ```
@@ -115,6 +179,8 @@ Status shape:
 Common service states:
 
 - `idle`
+- `opening`
+- `connecting`
 - `syncing`
 - `ready`
 - `error`

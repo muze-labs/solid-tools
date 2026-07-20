@@ -12,6 +12,8 @@ import {
   createSolidAdapter,
   solidFs,
   createSolidMetroClient,
+  authorizePopup,
+  popupHandleRedirect,
   oidcIdToken,
   resolveSolidUrl,
   pathFromUrl
@@ -124,6 +126,8 @@ When no client is supplied, JSFS-Solid may compose:
 
 When a client is supplied, it is treated as already configured unless `configureMetro: true` is set.
 
+`authorizePopup` and `popupHandleRedirect` are re-exported from Metro-OAuth2 for Solid applications that use JSFS-Solid's default Metro-OIDC stack and want popup-based authorization rather than a full-page redirect. Metro-OIDC currently does not expose these helpers directly; JSFS-Solid exports them as the application-facing Solid setup package.
+
 ## Path helpers
 
 ```js
@@ -136,4 +140,3 @@ isAbsoluteUrl(value)
 ```
 
 These helpers are filesystem/path conveniences for the adapter. They do not perform Solid HTTP requests.
-

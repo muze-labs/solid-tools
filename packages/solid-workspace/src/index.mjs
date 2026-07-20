@@ -13,6 +13,34 @@ export function collection(options = {}) {
   }
 }
 
+export function resource(idOrOptions, options = {}) {
+  const config = typeof idOrOptions === 'string'
+    ? { ...options, id: idOrOptions }
+    : { ...idOrOptions }
+
+  if (!config.id) {
+    throw new TypeError('solid-workspace: resource id is required')
+  }
+
+  if (!config.local && !config.remote) {
+    throw new TypeError('solid-workspace: resource() needs a local or remote replica')
+  }
+
+  if (config.local) {
+    assertWorkspaceSource(config.local, 'local')
+  }
+  if (config.remote) {
+    assertWorkspaceSource(config.remote, 'remote')
+  }
+
+  return Object.freeze({
+    ...config,
+    workspacePart: 'resource',
+    type: config.type ?? 'replicated-resource',
+    id: String(config.id)
+  })
+}
+
 export function mergeGraphDocuments(documents = [], options = {}) {
   if (!Array.isArray(documents)) {
     throw new TypeError('solid-workspace: graph documents must be an array')
@@ -150,10 +178,24 @@ export class SolidWorkspace {
     const client = options.solid ?? options.lading ?? options.client
 
     this.solid = client
-    this.sources = normalizeSources(options.sources ?? [])
-    this.sourceById = new Map(this.sources.map(source => [source.id, source]))
+    this.sources = []
+    this.sourceById = new Map()
+    this.resources = []
+    this.resourceById = new Map()
+    this.status = {
+      state: 'idle',
+      error: null,
+      sources: {},
+      resources: {}
+    }
     this.records = []
     this.objects = new WeakMap()
+    if (options.sources) {
+      this.addSource(options.sources)
+    }
+    if (options.resources) {
+      this.add(options.resources)
+    }
     this.collections = Object.fromEntries(
       Object.entries(options.collections ?? {}).map(([name, descriptor]) => [
         name,
@@ -172,6 +214,11 @@ export class SolidWorkspace {
 
     if (part?.workspacePart === 'source') {
       this.addSource(part)
+      return this
+    }
+
+    if (part?.workspacePart === 'resource') {
+      this.addResource(part)
       return this
     }
 
@@ -194,9 +241,70 @@ export class SolidWorkspace {
         this.sources.push(descriptor)
       }
       this.sourceById.set(descriptor.id, descriptor)
+      this.setSourceStatus(descriptor, this.status.sources[descriptor.id] ?? { state: 'idle' })
+      for (const record of this.records) {
+        const source = record.source?.parent ?? record.source
+        if (source?.id === descriptor.id) {
+          record.source = descriptor
+        }
+      }
     }
 
     return sources.length === 1 ? sources[0] : sources
+  }
+
+  addResource(part) {
+    if (part?.workspacePart !== 'resource') {
+      throw new TypeError('solid-workspace: addResource() expects a resource() workspace part')
+    }
+
+    const existing = this.resourceById.get(part.id)
+    const current = existing
+      ? { ...existing }
+      : {
+          id: part.id,
+          type: part.type ?? 'replicated-resource',
+          local: null,
+          remote: null
+        }
+
+    const remoteSource = part.remote
+      ? resourceReplicaSource(part.remote, {
+          resource: current,
+          replica: 'remote'
+        })
+      : current.remote
+    const localSource = part.local
+      ? resourceReplicaSource(part.local, {
+          resource: current,
+          replica: 'local',
+          syncTo: remoteSource?.id
+        })
+      : current.local && remoteSource
+        ? resourceReplicaSource(current.local, {
+            resource: current,
+            replica: 'local',
+            syncTo: remoteSource.id
+          })
+        : current.local
+
+    if (localSource) {
+      current.local = this.addSource(localSource)
+    }
+    if (remoteSource) {
+      current.remote = this.addSource(remoteSource)
+    }
+
+    const index = this.resources.findIndex(item => item.id === current.id)
+    if (index >= 0) {
+      this.resources[index] = current
+    } else {
+      this.resources.push(current)
+    }
+    this.resourceById.set(current.id, current)
+    this.setResourceStatus(current)
+
+    return current
   }
 
   setClient(client) {
@@ -205,86 +313,260 @@ export class SolidWorkspace {
   }
 
   async open(options = {}) {
+    if (isResourceReference(this, options)) {
+      return this.openResource(options)
+    }
+
+    if (isOpenAllOptions(options) && this.resources.length > 0) {
+      const resourceSourceIds = new Set(this.resources.flatMap(item => (
+        resourceSources(item).map(source => source.id)
+      )))
+      for (const item of this.resources) {
+        await this.openResource(item, options)
+      }
+      const directSources = this.sources.filter(source => !resourceSourceIds.has(source.id))
+      if (directSources.length > 0) {
+        await this.load({
+          ...options,
+          sources: directSources,
+          throwOnError: options.throwOnError ?? false
+        })
+      }
+      return this
+    }
+
+    if (Array.isArray(options) && options.some(item => isResourceReference(this, item))) {
+      for (const item of options) {
+        if (isResourceReference(this, item)) {
+          await this.openResource(item)
+        } else {
+          await this.load({ sources: item, throwOnError: false })
+        }
+      }
+      return this
+    }
+
+    if (options?.resources) {
+      const resources = Array.isArray(options.resources) ? options.resources : [options.resources]
+      for (const item of resources) {
+        await this.openResource(item, options)
+      }
+      return this
+    }
+
     if (
       typeof options === 'string'
       || Array.isArray(options)
       || options?.workspacePart === 'source'
     ) {
-      return this.load({ sources: options })
+      return this.load({ sources: options, throwOnError: false })
     }
 
-    return this.load(options)
+    return this.load({
+      throwOnError: false,
+      ...options
+    })
+  }
+
+  async openResource(resourceOrId, options = {}) {
+    const logicalResource = resolveResource(this, resourceOrId)
+    const sources = resourceSources(logicalResource)
+    const failures = []
+    const loaded = []
+    const throwOnError = options.throwOnError ?? false
+
+    this.status.state = 'opening'
+    this.status.error = null
+    this.setResourceStatus(logicalResource, { state: 'opening', error: null })
+
+    for (const source of sources) {
+      try {
+        loaded.push({
+          source,
+          objects: await this.loadSource(source)
+        })
+      } catch (error) {
+        failures.push({ source, error })
+        if (throwOnError) {
+          this.status.state = 'error'
+          this.status.error = error
+          this.setResourceStatus(logicalResource, { state: 'error', error })
+          throw error
+        }
+      }
+    }
+
+    if (
+      logicalResource.local
+      && logicalResource.remote
+      && this.status.sources[logicalResource.remote.id]?.state === 'ready'
+    ) {
+      try {
+        const document = mergeGraphDocuments([
+          this.dataset({ sources: [logicalResource.local.id] }),
+          this.dataset({ sources: [logicalResource.remote.id] })
+        ], options)
+
+        if (document.changed || options.force === true) {
+          await saveGraphDocument(this, logicalResource.local, document, options.writeOptions)
+          this.replaceSourceRecords(logicalResource.local, cloneValue(document.subjects), {
+            source: logicalResource.local,
+            sourceUrl: logicalResource.local.url,
+            status: 'loaded'
+          })
+          this.setSourceStatus(logicalResource.local, { state: 'ready', error: null })
+        }
+      } catch (error) {
+        failures.push({ source: logicalResource.local, error })
+        this.setSourceStatus(logicalResource.local, {
+          state: sourceFailureState(error),
+          error
+        })
+        if (throwOnError) {
+          this.status.state = 'error'
+          this.status.error = error
+          this.setResourceStatus(logicalResource, { state: 'error', error })
+          throw error
+        }
+      }
+    }
+
+    this.status.lastOpen = { resource: logicalResource, sources, loaded, failures }
+    this.status.state = workspaceState(this)
+    this.status.error = failures[0]?.error ?? null
+    this.setResourceStatus(logicalResource, {
+      state: resourceState(this, logicalResource),
+      error: failures[0]?.error ?? null
+    })
+    return this
   }
 
   async load(options = {}) {
     const sources = normalizeLoadSources(this, options.sources ?? this.sources)
-    const preserved = this.records.filter(record => (
-      record.status === 'new'
-      || !recordBelongsToSources(record, sources)
-    ))
-    this.records = preserved
-    this.objects = new WeakMap()
+    const failures = []
+    const loaded = []
+    const throwOnError = options.throwOnError ?? true
 
-    for (const record of preserved) {
-      this.objects.set(record.object, record)
-    }
+    this.status.state = 'opening'
+    this.status.error = null
 
     for (const source of sources) {
-      await this.loadSource(source)
+      try {
+        loaded.push(await this.loadSource(source))
+      } catch (error) {
+        failures.push({ source, error })
+        if (throwOnError) {
+          this.status.state = 'error'
+          this.status.error = error
+          throw error
+        }
+      }
     }
 
+    this.status.lastOpen = { sources, loaded, failures }
+    this.status.state = workspaceState(this)
+    this.status.error = failures[0]?.error ?? null
     return this
   }
 
   async loadSource(sourceOrId) {
     const descriptor = resolveSource(this, sourceOrId)
+    this.setSourceStatus(descriptor, { state: 'opening', error: null })
 
-    if (descriptor.kind === 'container') {
-      assertSolidClient(this)
-      const entries = await this.solid.container(descriptor.url).contains(descriptor.options)
-
-      for (const entry of entries) {
-        await this.loadSource({
-          ...descriptor,
-          kind: 'resource',
-          url: entry.url,
-          parent: descriptor
+    try {
+      if (descriptor.kind === 'container') {
+        assertSolidClient(this)
+        const entries = await this.solid.container(descriptor.url).contains(descriptor.options)
+        this.replaceSourceRecords(descriptor, [], {
+          source: descriptor,
+          sourceUrl: descriptor.url,
+          status: 'loaded'
         })
+
+        for (const entry of entries) {
+          await this.loadSource({
+            ...descriptor,
+            append: true,
+            kind: 'resource',
+            url: entry.url,
+            parent: descriptor
+          })
+        }
+
+        this.setSourceStatus(descriptor, { state: 'ready', error: null })
+        return entries
       }
 
-      return entries
-    }
+      if (typeof descriptor.load === 'function') {
+        const document = graphDocumentFrom(await descriptor.load({
+          source: descriptor,
+          workspace: this
+        }))
+        const objects = document.subjects
 
-    if (typeof descriptor.load === 'function') {
-      const document = graphDocumentFrom(await descriptor.load({
-        source: descriptor,
-        workspace: this
-      }))
-      const objects = document.subjects
+        if (descriptor.append) {
+          this.trackObjects(objects, {
+            source: descriptor,
+            sourceUrl: descriptor.url,
+            status: 'loaded'
+          })
+        } else {
+          this.replaceSourceRecords(descriptor, objects, {
+            source: descriptor,
+            sourceUrl: descriptor.url,
+            status: 'loaded'
+          })
+        }
+        this.setSourceStatus(descriptor, { state: 'ready', error: null })
 
-      for (const object of objects) {
-        this.track(object, {
+        return objects
+      }
+
+      assertSolidClient(this)
+      const response = await this.solid.resource(descriptor.url).get(descriptor.options)
+      const responseStatus = response?.status ?? 200
+      if (responseStatus === 404 || responseStatus === 410) {
+        if (!descriptor.append) {
+          this.replaceSourceRecords(descriptor, [], {
+            source: descriptor,
+            sourceUrl: descriptor.url,
+            status: 'loaded'
+          })
+        }
+        this.setSourceStatus(descriptor, { state: 'ready', error: null })
+        return []
+      }
+      if (responseStatus >= 400) {
+        throw responseError({ source: descriptor, response })
+      }
+
+      const objects = subjectsFromResponse(response)
+
+      if (descriptor.append) {
+        this.trackObjects(objects, {
+          response,
+          source: descriptor,
+          sourceUrl: descriptor.url,
+          status: 'loaded'
+        })
+      } else {
+        this.replaceSourceRecords(descriptor, objects, {
+          response,
           source: descriptor,
           sourceUrl: descriptor.url,
           status: 'loaded'
         })
       }
+      this.setSourceStatus(descriptor, { state: 'ready', error: null })
 
       return objects
+    } catch (error) {
+      this.setSourceStatus(descriptor, {
+        state: sourceFailureState(error),
+        error
+      })
+      throw error
     }
-
-    assertSolidClient(this)
-    const response = await this.solid.resource(descriptor.url).get(descriptor.options)
-    const objects = subjectsFromResponse(response)
-
-    this.trackObjects(objects, {
-      response,
-      source: descriptor,
-      sourceUrl: descriptor.url,
-      status: 'loaded'
-    })
-
-    return objects
   }
 
   trackObjects(objects, options = {}) {
@@ -295,19 +577,38 @@ export class SolidWorkspace {
     return objects
   }
 
+  replaceSourceRecords(source, objects, options = {}) {
+    this.records = this.records.filter(record => (
+      record.status === 'new'
+      || !recordBelongsToSources(record, [source])
+    ))
+    this.objects = new WeakMap()
+
+    for (const record of this.records) {
+      this.objects.set(record.object, record)
+    }
+
+    return this.trackObjects(objects, options)
+  }
+
   dataset(options = {}) {
-    const records = recordsForSources(this, options.sources ?? this.sources)
+    const config = normalizeDatasetOptions(this, options)
+    const records = recordsForSources(this, config.sources ?? this.sources)
     return mergeGraphDocuments([
       {
-        format: options.format,
-        version: options.version,
-        prefixes: options.prefixes,
+        format: config.format,
+        version: config.version,
+        prefixes: config.prefixes,
         subjects: records.map(record => record.object)
       }
-    ], options)
+    ], config)
   }
 
   async sync(options = {}) {
+    if (isResourceReference(this, options)) {
+      return this.syncResource(options)
+    }
+
     const target = resolveSource(this, options.into)
 
     if (target.kind !== 'resource') {
@@ -333,6 +634,7 @@ export class SolidWorkspace {
     ], options)
 
     if (!document.changed && options.force !== true) {
+      this.clearSyncPending(target)
       return {
         ok: true,
         status: 'unchanged',
@@ -342,15 +644,168 @@ export class SolidWorkspace {
       }
     }
 
-    const response = await saveGraphDocument(this, target, document, options.writeOptions)
+    try {
+      this.setSourceStatus(target, { state: 'syncing', error: null })
+      const response = await saveGraphDocument(this, target, document, options.writeOptions)
+      this.clearSyncPending(target)
+      this.setSourceStatus(target, { state: 'ready', error: null })
 
-    return {
-      ok: true,
-      status: 'synced',
-      source: target,
-      sourceUrl: target.url,
-      document,
-      response
+      return {
+        ok: true,
+        status: 'synced',
+        source: target,
+        sourceUrl: target.url,
+        document,
+        response
+      }
+    } catch (error) {
+      this.setSourceStatus(target, {
+        state: sourceFailureState(error),
+        error
+      })
+      throw error
+    }
+  }
+
+  async syncResource(resourceOrId, options = {}) {
+    const logicalResource = resolveResource(this, resourceOrId)
+    const localSource = logicalResource.local
+    const remoteSource = logicalResource.remote
+
+    if (!localSource) {
+      throw new Error(`solid-workspace: resource ${logicalResource.id} needs a local replica to sync`)
+    }
+    if (!remoteSource) {
+      throw new Error(`solid-workspace: resource ${logicalResource.id} needs a remote replica to sync`)
+    }
+    if (remoteSource.readOnly) {
+      throw new Error(`solid-workspace: source ${remoteSource.id} is read-only`)
+    }
+
+    this.setResourceStatus(logicalResource, { state: 'syncing', error: null })
+    this.setSourceStatus(remoteSource, { state: 'syncing', error: null })
+
+    let remoteDocument
+    try {
+      remoteDocument = options.loadRemote === false
+        ? graphDocumentFrom(options.remoteDocument)
+        : await this.loadGraphDocument(remoteSource, options)
+    } catch (error) {
+      this.setSourceStatus(remoteSource, {
+        state: sourceFailureState(error),
+        error
+      })
+      this.markSyncPending({
+        from: localSource.id,
+        into: remoteSource.id
+      })
+      this.setResourceStatus(logicalResource, {
+        state: 'sync-pending',
+        error
+      })
+      return {
+        ok: false,
+        status: this.status.sources[remoteSource.id].state,
+        resource: logicalResource,
+        source: remoteSource,
+        sourceUrl: remoteSource.url,
+        error
+      }
+    }
+
+    const localDocument = this.dataset({
+      sources: [localSource.id],
+      format: options.format,
+      version: options.version,
+      prefixes: options.prefixes
+    })
+    const document = mergeGraphDocuments([
+      remoteDocument,
+      localDocument
+    ], options)
+
+    if (!document.changed && options.force !== true) {
+      this.clearSyncPending(remoteSource)
+      this.setResourceStatus(logicalResource, { state: 'ready', error: null })
+      return {
+        ok: true,
+        status: 'unchanged',
+        resource: logicalResource,
+        source: remoteSource,
+        sourceUrl: remoteSource.url,
+        document
+      }
+    }
+
+    let response
+    try {
+      response = await saveGraphDocument(this, remoteSource, document, options.writeOptions)
+    } catch (error) {
+      this.setSourceStatus(remoteSource, {
+        state: sourceFailureState(error),
+        error
+      })
+      this.markSyncPending({
+        from: localSource.id,
+        into: remoteSource.id
+      })
+      this.setResourceStatus(logicalResource, {
+        state: 'sync-pending',
+        error
+      })
+      return {
+        ok: false,
+        status: this.status.sources[remoteSource.id].state,
+        resource: logicalResource,
+        source: remoteSource,
+        sourceUrl: remoteSource.url,
+        error
+      }
+    }
+
+    try {
+      await saveGraphDocument(this, localSource, document, options.localWriteOptions ?? options.writeOptions)
+      this.replaceSourceRecords(remoteSource, cloneValue(document.subjects), {
+        source: remoteSource,
+        sourceUrl: remoteSource.url,
+        status: 'loaded'
+      })
+      this.replaceSourceRecords(localSource, cloneValue(document.subjects), {
+        source: localSource,
+        sourceUrl: localSource.url,
+        status: 'loaded'
+      })
+      this.clearSyncPending(remoteSource)
+      this.setSourceStatus(remoteSource, { state: 'ready', error: null })
+      this.setSourceStatus(localSource, { state: 'ready', error: null })
+      this.setResourceStatus(logicalResource, { state: 'ready', error: null })
+
+      return {
+        ok: true,
+        status: 'synced',
+        resource: logicalResource,
+        source: remoteSource,
+        sourceUrl: remoteSource.url,
+        document,
+        response
+      }
+    } catch (error) {
+      this.setSourceStatus(localSource, {
+        state: sourceFailureState(error),
+        error
+      })
+      this.setResourceStatus(logicalResource, {
+        state: 'error',
+        error
+      })
+      return {
+        ok: false,
+        status: this.status.sources[localSource.id].state,
+        resource: logicalResource,
+        source: localSource,
+        sourceUrl: localSource.url,
+        error
+      }
     }
   }
 
@@ -378,6 +833,9 @@ export class SolidWorkspace {
 
       if (response?.status === 404 || response?.status === 410) {
         return graphDocumentFrom(null)
+      }
+      if ((response?.status ?? 200) >= 400) {
+        throw responseError({ source: descriptor, response })
       }
 
       return graphDocumentFrom(response?.data)
@@ -439,7 +897,7 @@ export class SolidWorkspace {
   }
 
   async createIn(sourceOrId, object, options = {}) {
-    const descriptor = resolveSource(this, sourceOrId)
+    const descriptor = resolveCreateSource(this, sourceOrId)
 
     if (descriptor.readOnly) {
       throw new Error(`solid-workspace: source ${descriptor.id} is read-only`)
@@ -492,6 +950,14 @@ export class SolidWorkspace {
         const response = await saveGraphDocument(this, record.source, document, options)
         record.sourceUrl = record.source.url
         record.created = false
+        this.setSourceStatus(record.source, { state: 'ready', error: null })
+        const syncTo = options.syncTo ?? record.source.syncTo
+        if (syncTo) {
+          this.markSyncPending({
+            from: record.source.id,
+            into: syncTo
+          })
+        }
         return updateRecordStatus(record, {
           ok: true,
           status: record.deleted ? 'deleted' : 'saved',
@@ -502,6 +968,7 @@ export class SolidWorkspace {
       assertSolidClient(this)
       if (record.deleted) {
         const response = await this.solid.resource(record.sourceUrl).delete(options)
+        this.setSourceStatus(record.source, { state: 'ready', error: null })
         return updateRecordStatus(record, { ok: true, status: 'deleted', response })
       }
 
@@ -513,12 +980,18 @@ export class SolidWorkspace {
 
         record.sourceUrl = response.location ?? source.url
         record.created = false
+        this.setSourceStatus(record.source, { state: 'ready', error: null })
         return updateRecordStatus(record, { ok: true, status: 'created', response })
       }
 
       const response = await this.solid.resource(record.sourceUrl).put(record.object, writeOptions(record.source, options))
+      this.setSourceStatus(record.source, { state: 'ready', error: null })
       return updateRecordStatus(record, { ok: true, status: 'saved', response })
     } catch (error) {
+      this.setSourceStatus(record.source, {
+        state: sourceFailureState(error),
+        error
+      })
       return updateRecordStatus(record, { ok: false, status: 'error', error })
     }
   }
@@ -557,6 +1030,80 @@ export class SolidWorkspace {
     }
 
     return statuses
+  }
+
+  markSyncPending({ from, into }) {
+    const targets = Array.isArray(into) ? into : [into]
+
+    for (const target of targets) {
+      const source = resolveSource(this, target)
+      const current = this.status.sources[source.id] ?? sourceStatus(source, { state: 'idle' })
+      this.setSourceStatus(source, {
+        ...current,
+        state: current.state === 'opening' || current.state === 'syncing'
+          ? current.state
+          : 'sync-pending',
+        syncPending: true,
+        pendingFrom: unique([
+          ...values(current.pendingFrom),
+          ...values(from)
+        ])
+      })
+    }
+
+    return this
+  }
+
+  clearSyncPending(sourceOrId) {
+    const source = resolveSource(this, sourceOrId)
+    const current = this.status.sources[source.id] ?? sourceStatus(source, { state: 'idle' })
+    this.setSourceStatus(source, {
+      ...current,
+      state: current.state === 'sync-pending' ? 'ready' : current.state,
+      syncPending: false,
+      pendingFrom: []
+    })
+    return this
+  }
+
+  setSourceStatus(sourceOrId, status = {}) {
+    const source = typeof sourceOrId === 'string'
+      ? this.sourceById.get(sourceOrId) ?? { id: sourceOrId }
+      : sourceOrId?.parent ?? sourceOrId
+
+    if (!source?.id) {
+      return null
+    }
+
+    const current = this.status?.sources?.[source.id] ?? {}
+    const next = sourceStatus(source, {
+      ...current,
+      ...status
+    })
+    this.status.sources[source.id] = next
+    return next
+  }
+
+  setResourceStatus(resourceOrId, status = {}) {
+    const logicalResource = typeof resourceOrId === 'string'
+      ? this.resourceById.get(resourceOrId) ?? { id: resourceOrId }
+      : resourceOrId
+
+    if (!logicalResource?.id) {
+      return null
+    }
+
+    const current = this.status?.resources?.[logicalResource.id] ?? {}
+    const next = {
+      id: logicalResource.id,
+      type: logicalResource.type ?? 'replicated-resource',
+      local: logicalResource.local?.id ?? null,
+      remote: logicalResource.remote?.id ?? null,
+      state: status.state ?? current.state ?? 'idle',
+      error: status.error ?? current.error ?? null
+    }
+    this.status.resources[logicalResource.id] = next
+    return next
   }
 }
 
@@ -662,6 +1209,23 @@ function graphResource(options = {}) {
   })
 }
 
+function assertWorkspaceSource(descriptor, role = 'source') {
+  if (descriptor?.workspacePart !== 'source') {
+    throw new TypeError(`solid-workspace: resource ${role} replica must be a source from a factory`)
+  }
+}
+
+function resourceReplicaSource(descriptor, { resource, replica, syncTo } = {}) {
+  assertWorkspaceSource(descriptor, replica)
+
+  return Object.freeze({
+    ...descriptor,
+    logicalResource: resource.id,
+    replica,
+    syncTo: syncTo ?? descriptor.syncTo
+  })
+}
+
 function normalizeSources(sources) {
   if (!Array.isArray(sources)) {
     throw new TypeError('solid-workspace: sources must be an array')
@@ -693,12 +1257,79 @@ function normalizeCollection(descriptor) {
   }
 }
 
+function normalizeDatasetOptions(currentWorkspace, options = {}) {
+  if (isResourceReference(currentWorkspace, options)) {
+    return {
+      resources: [options],
+      sources: datasetSourcesForResources(currentWorkspace, [options])
+    }
+  }
+
+  if (options?.resources) {
+    const resources = Array.isArray(options.resources) ? options.resources : [options.resources]
+    return {
+      ...options,
+      sources: datasetSourcesForResources(currentWorkspace, resources)
+    }
+  }
+
+  return options
+}
+
 function normalizeLoadSources(currentWorkspace, sources) {
   if (!Array.isArray(sources)) {
     sources = [sources]
   }
 
   return sources.map(sourceOrId => resolveSource(currentWorkspace, sourceOrId))
+}
+
+function isResourceReference(currentWorkspace, value) {
+  return Boolean(
+    value?.workspacePart === 'resource'
+    || (typeof value === 'string' && currentWorkspace.resourceById.has(value))
+  )
+}
+
+function isOpenAllOptions(options) {
+  return Boolean(
+    isObject(options)
+    && !Array.isArray(options)
+    && !options.sources
+    && !options.resources
+    && !options.workspacePart
+  )
+}
+
+function resolveResource(currentWorkspace, resourceOrId) {
+  if (!resourceOrId) {
+    throw new TypeError('solid-workspace: resource is required')
+  }
+
+  if (typeof resourceOrId === 'string') {
+    const logicalResource = currentWorkspace.resourceById.get(resourceOrId)
+    if (!logicalResource) {
+      throw new Error(`solid-workspace: unknown resource ${resourceOrId}`)
+    }
+    return logicalResource
+  }
+
+  if (resourceOrId.workspacePart === 'resource') {
+    return currentWorkspace.resourceById.get(resourceOrId.id) ?? resourceOrId
+  }
+
+  return resourceOrId
+}
+
+function resourceSources(logicalResource) {
+  return [logicalResource.local, logicalResource.remote].filter(Boolean)
+}
+
+function datasetSourcesForResources(currentWorkspace, resources) {
+  return resources.flatMap(resourceOrId => {
+    const logicalResource = resolveResource(currentWorkspace, resourceOrId)
+    return [logicalResource.local ?? logicalResource.remote].filter(Boolean)
+  })
 }
 
 function resolveSource(currentWorkspace, sourceOrId) {
@@ -715,6 +1346,18 @@ function resolveSource(currentWorkspace, sourceOrId) {
   }
 
   return sourceOrId
+}
+
+function resolveCreateSource(currentWorkspace, sourceOrResourceOrId) {
+  if (isResourceReference(currentWorkspace, sourceOrResourceOrId)) {
+    const logicalResource = resolveResource(currentWorkspace, sourceOrResourceOrId)
+    if (!logicalResource.local) {
+      throw new Error(`solid-workspace: resource ${logicalResource.id} needs a local replica for local-first writes`)
+    }
+    return logicalResource.local
+  }
+
+  return resolveSource(currentWorkspace, sourceOrResourceOrId)
 }
 
 function recordsForSources(currentWorkspace, sources) {
@@ -1050,6 +1693,90 @@ function statusFor(record, status = {}) {
   }
 }
 
+function sourceStatus(source, status = {}) {
+  return {
+    id: source.id,
+    type: source.type ?? source.kind ?? 'source',
+    url: source.url ?? null,
+    local: Boolean(source.local),
+    logicalResource: source.logicalResource ?? null,
+    replica: source.replica ?? null,
+    state: status.state ?? 'idle',
+    error: status.error ?? null,
+    syncPending: Boolean(status.syncPending),
+    pendingFrom: values(status.pendingFrom)
+  }
+}
+
+function workspaceState(currentWorkspace) {
+  const states = Object.values(currentWorkspace.status.sources).map(status => status.state)
+
+  if (states.length === 0) {
+    return 'idle'
+  }
+
+  if (states.some(state => state === 'ready' || state === 'sync-pending')) {
+    return 'ready'
+  }
+
+  if (states.some(state => state === 'opening' || state === 'syncing')) {
+    return 'opening'
+  }
+
+  return 'error'
+}
+
+function resourceState(currentWorkspace, logicalResource) {
+  const states = resourceSources(logicalResource)
+    .map(source => currentWorkspace.status.sources[source.id]?.state)
+    .filter(Boolean)
+
+  if (states.length === 0) {
+    return 'idle'
+  }
+
+  if (states.some(state => state === 'sync-pending')) {
+    return 'sync-pending'
+  }
+
+  if (states.some(state => state === 'ready')) {
+    return 'ready'
+  }
+
+  if (states.some(state => state === 'opening' || state === 'syncing')) {
+    return 'opening'
+  }
+
+  return states[0] ?? 'idle'
+}
+
+function sourceFailureState(error) {
+  const status = errorStatus(error)
+
+  if (status === 401 || status === 403) {
+    return 'auth-needed'
+  }
+
+  if (!status || error?.name === 'TypeError') {
+    return 'offline'
+  }
+
+  return 'error'
+}
+
+function responseError({ source, response }) {
+  const error = new Error(`solid-workspace: source ${source.id} returned HTTP ${response?.status}`)
+  error.response = response
+  error.source = source
+  return error
+}
+
+function errorStatus(error) {
+  return error?.response?.status
+    ?? error?.cause?.status
+    ?? error?.status
+}
+
 function ensureSlash(url) {
   return String(url).endsWith('/') ? String(url) : `${url}/`
 }
@@ -1062,6 +1789,10 @@ function values(value) {
   return Array.isArray(value) ? value : [value]
 }
 
+function unique(items) {
+  return [...new Set(items)]
+}
+
 function isObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
@@ -1070,6 +1801,7 @@ export default {
   packageName,
   workspace,
   collection,
+  resource,
   mergeGraphDocuments,
   graph,
   local,

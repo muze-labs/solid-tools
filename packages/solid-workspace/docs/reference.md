@@ -12,6 +12,7 @@ The long-term workspace model is local-first. Applications should be able to ope
 import {
   workspace,
   collection,
+  resource,
   graph,
   local,
   mergeGraphDocuments,
@@ -28,6 +29,7 @@ Default export:
   packageName,
   workspace,
   collection,
+  resource,
   graph,
   local,
   mergeGraphDocuments,
@@ -44,6 +46,7 @@ solid.container(url, options)
 solid.client(ladingClient)
 graph.resource(options)
 local.memory(id, options)
+resource(id, { local, remote })
 ```
 
 Options:
@@ -78,9 +81,10 @@ Options:
 
 - `solid`, `lading`, or `client`: a Lading client.
 - `sources`: source descriptors.
+- `resources`: logical resource descriptors from `resource()`.
 - `collections`: named collection descriptors.
 
-Current source descriptors are Solid-oriented. The local-first design adds generic OLDMed graph resource sources so IndexedDB, memory, and file-backed resources can participate in the same workspace as Solid resources.
+Source descriptors are the low-level replica contract. The local-first design adds logical resources so IndexedDB, memory, and file-backed replicas can participate in the same application resource as a Solid replica.
 
 `graph.resource()` is the low-level contract for a graph resource source:
 
@@ -124,23 +128,33 @@ const ws = workspace({
 await ws.load()
 ```
 
-When Solid becomes available later, keep the workspace and add the remote source:
+For PWA-style apps, prefer a logical resource with a local working copy:
+
+```js
+const ws = workspace()
+  .add(resource('notes', {
+    local: localNotes
+  }))
+
+await ws.open('notes')
+```
+
+When Solid becomes available later, keep the workspace and add the remote replica:
 
 ```js
 const solidParts = [
   solid.client(ladingClient),
-  solid.turtleResource(notesUrl, {
-    id: 'solid-notes'
+  resource('notes', {
+    remote: solid.turtleResource(notesUrl, {
+      id: 'solid-notes'
+    })
   })
 ]
 
 ws.add(solidParts)
 
-await ws.open('solid-notes')
-await ws.sync({
-  from: ['local-notes'],
-  into: 'solid-notes'
-})
+await ws.open('notes')
+await ws.sync('notes')
 ```
 
 ## Workspace methods
@@ -153,11 +167,14 @@ await ws.open()
 await ws.open('contacts')
 
 ws.add(source)
-ws.add([source, source])
+ws.add(resource('notes', { local, remote }))
+ws.add([source, resource])
 ws.setClient(ladingClient)
 ws.addSource(source)
 ws.dataset()
+ws.dataset('notes')
 await ws.sync({ from: ['local'], into: 'remote' })
+await ws.sync('notes')
 
 ws.track(object, options)
 ws.sourceOf(object)
@@ -171,9 +188,22 @@ await ws.saveAll()
 
 `load()` reads configured sources. Resource sources call `solid.resource(url).get()`. Container sources call `solid.container(url).contains()` and then load each contained resource.
 
-`open()` is the application-facing alias for loading sources. Pass a source id, source descriptor, array of sources, or `{ sources }` options.
+`open()` is the application-facing alias for loading resources and sources. Pass a logical resource id, source id, source descriptor, array of sources, or `{ sources }` options.
 
-`add()` accepts only explicit workspace parts returned by factories such as `local.memory()`, `solid.client()`, `solid.turtleResource()`, or `graph.resource()`. It also accepts arrays of those parts, returns the same workspace for fluent composition, and throws for plain objects.
+`open()` is tolerant by default for local-first applications: if one source fails, the failure is recorded in `workspace.status.sources[sourceId]` and other sources remain available. Use `load()` or `open({ throwOnError: true })` when a caller wants strict failure behavior.
+
+`add()` accepts only explicit workspace parts returned by factories such as `resource()`, `local.memory()`, `solid.client()`, `solid.turtleResource()`, or `graph.resource()`. It also accepts arrays of those parts, returns the same workspace for fluent composition, and throws for plain objects.
+
+Logical `resource()` parts group replicas of the same conceptual document:
+
+```js
+resource('notes', {
+  local: local.memory('notes:local'),
+  remote: solid.turtleResource(notesUrl, { id: 'notes:solid' })
+})
+```
+
+When a logical resource has a local replica, `dataset('notes')` reads from the local working copy. Opening the resource reconciles the reachable remote graph back into that local copy. Saving through `createIn('notes', object)` writes locally and marks the remote replica `sync-pending` when one is configured.
 
 Loaded objects are read from Metro-OLDM-shaped response data:
 
@@ -184,12 +214,61 @@ Loaded objects are read from Metro-OLDM-shaped response data:
 
 `sourceOf()` returns the tracked source for an object. When a parsed OLDM context exposes `context.sources()`, `sourcesOf(object, predicate, value)` delegates fact-level source lookup to it.
 
+## Status
+
+The workspace exposes source-level status:
+
+```js
+workspace.status
+workspace.status.sources['local-notes']
+workspace.status.sources['solid-notes']
+```
+
+Source status shape:
+
+```js
+{
+  id,
+  type,
+  url,
+  local,
+  logicalResource,
+  replica,
+  state,
+  error,
+  syncPending,
+  pendingFrom
+}
+```
+
+Common source states:
+
+- `idle`
+- `opening`
+- `ready`
+- `offline`
+- `auth-needed`
+- `syncing`
+- `sync-pending`
+- `error`
+
+HTTP `401` and `403` are reported as `auth-needed`. Missing resources can open as empty graph documents. Network/client absence is reported as `offline`.
+
+Local writes can mark a remote source as pending:
+
+```js
+await ws.createIn('notes', note)
+```
+
+A successful `sync('notes')` clears the pending marker.
+
 ## Open-World Dataset
 
 `dataset()` returns a single graph document view over selected workspace sources:
 
 ```js
 const graph = ws.dataset({ sources: ['local', 'remote'] })
+const notes = ws.dataset('notes')
 ```
 
 The dataset uses open-world additive merging. Subjects with different ids are preserved. Subjects with the same id are combined by preserving known facts; conflicting predicate values become multi-values instead of being treated as deletion or replacement.
@@ -203,7 +282,13 @@ const graph = mergeGraphDocuments([
 ])
 ```
 
-`sync()` projects a dataset into a writable resource source:
+For logical resources, `sync()` reconciles the local working copy and current remote graph, writes the merged document to the remote replica, then stores it locally:
+
+```js
+await ws.sync('notes')
+```
+
+The source-to-source form projects a dataset into a writable resource source:
 
 ```js
 await ws.sync({
@@ -214,7 +299,7 @@ await ws.sync({
 
 This is intentionally additive. It does not interpret absence as deletion and does not resolve semantic conflicts beyond preserving all values.
 
-For PWA-style apps, local resources should be first-class sources rather than caches of Solid resources. Remote source failures should become source status such as `offline` or `auth-needed`, while the workspace continues serving the local dataset.
+For PWA-style apps, local replicas should be first-class working copies rather than opaque caches of Solid resources. Remote source failures should become source status such as `offline` or `auth-needed`, while the workspace continues serving the local dataset.
 
 ## Collections
 

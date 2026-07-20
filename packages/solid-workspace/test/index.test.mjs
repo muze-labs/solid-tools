@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { collection, graph, local, mergeGraphDocuments, packageName, solid, workspace } from '../src/index.mjs'
+import { collection, graph, local, mergeGraphDocuments, packageName, resource, solid, workspace } from '../src/index.mjs'
 import { field, shape } from '@muze-labs/oldm-shape'
 
 test('solid-workspace scaffold exports source descriptors', () => {
@@ -406,6 +406,10 @@ test('workspace add accepts explicit factory-created parts and arrays of parts',
   assert.equal(ws.sources[0], localSource)
   assert.equal(ws.add([settingsSource]), ws)
   assert.deepEqual(ws.sources, [localSource, settingsSource])
+  assert.equal(ws.add(resource('contacts', {
+    local: local.memory('contacts:local')
+  })), ws)
+  assert.equal(ws.resources[0].id, 'contacts')
   assert.throws(
     () => ws.add({
       kind: 'resource',
@@ -414,6 +418,185 @@ test('workspace add accepts explicit factory-created parts and arrays of parts',
     }),
     /add\(\) expects a workspace part from a factory/
   )
+})
+
+test('open keeps local data when a remote source is unavailable', async () => {
+  const localContact = {
+    id: 'urn:contact:local',
+    rdf$type: 'schema$Person',
+    schema$name: 'Local'
+  }
+  const ws = workspace()
+    .add([
+      local.memory('local-contacts', {
+        document: graphDocument([localContact])
+      }),
+      solid.turtleResource('https://pod.example/offline.ttl', {
+        id: 'solid-contacts'
+      })
+    ])
+
+  await ws.open()
+
+  assert.deepEqual(ws.dataset().subjects, [localContact])
+  assert.equal(ws.status.state, 'ready')
+  assert.equal(ws.status.sources['local-contacts'].state, 'ready')
+  assert.equal(ws.status.sources['solid-contacts'].state, 'offline')
+  assert.equal(ws.status.lastOpen.failures.length, 1)
+})
+
+test('load remains strict when a source cannot be opened', async () => {
+  const ws = workspace()
+    .add(solid.turtleResource('https://pod.example/offline.ttl', {
+      id: 'solid-contacts'
+    }))
+
+  await assert.rejects(
+    () => ws.load(),
+    /Lading client is required/
+  )
+  assert.equal(ws.status.state, 'error')
+  assert.equal(ws.status.sources['solid-contacts'].state, 'offline')
+})
+
+test('local saves can mark a remote source sync-pending until sync succeeds', async () => {
+  const localContact = {
+    id: 'urn:contact:local',
+    rdf$type: 'schema$Person',
+    schema$name: 'Local'
+  }
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/contacts.ttl': graphDocument([])
+    }
+  })
+  const ws = workspace()
+    .add([
+      local.memory('local-contacts'),
+      solid.turtleResource('https://pod.example/contacts.ttl', {
+        id: 'solid-contacts'
+      })
+    ])
+
+  await ws.open('local-contacts')
+  await ws.createIn('local-contacts', localContact, {
+    syncTo: 'solid-contacts'
+  })
+
+  assert.equal(ws.status.sources['solid-contacts'].state, 'sync-pending')
+  assert.equal(ws.status.sources['solid-contacts'].syncPending, true)
+  assert.deepEqual(ws.status.sources['solid-contacts'].pendingFrom, ['local-contacts'])
+
+  ws.add(solid.client(client))
+  const status = await ws.sync({
+    from: ['local-contacts'],
+    into: 'solid-contacts'
+  })
+
+  assert.equal(status.status, 'synced')
+  assert.equal(ws.status.sources['solid-contacts'].state, 'ready')
+  assert.equal(ws.status.sources['solid-contacts'].syncPending, false)
+  assert.deepEqual(ws.status.sources['solid-contacts'].pendingFrom, [])
+})
+
+test('logical resources store reachable remote data in the local working copy', async () => {
+  const remoteContact = {
+    id: 'urn:contact:remote',
+    rdf$type: 'schema$Person',
+    schema$name: 'Remote'
+  }
+  const localReplica = local.memory('contacts:local', {
+    document: graphDocument([])
+  })
+  const remoteReplica = solid.turtleResource('https://pod.example/contacts.ttl', {
+    id: 'contacts:solid'
+  })
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/contacts.ttl': graphDocument([remoteContact])
+    }
+  })
+  const online = workspace()
+    .add([
+      solid.client(client),
+      resource('contacts', {
+        local: localReplica,
+        remote: remoteReplica
+      })
+    ])
+
+  await online.open()
+
+  assert.deepEqual(online.dataset('contacts').subjects, [remoteContact])
+
+  const offline = workspace()
+    .add(resource('contacts', {
+      local: localReplica,
+      remote: remoteReplica
+    }))
+
+  await offline.open('contacts')
+
+  assert.deepEqual(offline.dataset('contacts').subjects, [remoteContact])
+  assert.equal(offline.status.sources['contacts:local'].state, 'ready')
+  assert.equal(offline.status.sources['contacts:solid'].state, 'offline')
+  assert.equal(offline.status.resources.contacts.state, 'ready')
+})
+
+test('logical resources save offline locally and sync additively later', async () => {
+  const originalRemote = {
+    id: 'urn:contact:remote',
+    rdf$type: 'schema$Person',
+    schema$name: 'Remote'
+  }
+  const offlineLocal = {
+    id: 'urn:contact:local',
+    rdf$type: 'schema$Person',
+    schema$name: 'Local'
+  }
+  const laterRemote = {
+    id: 'urn:contact:later-remote',
+    rdf$type: 'schema$Person',
+    schema$name: 'Later Remote'
+  }
+  const localReplica = local.memory('contacts:local', {
+    document: graphDocument([originalRemote])
+  })
+  const remoteReplica = solid.turtleResource('https://pod.example/contacts.ttl', {
+    id: 'contacts:solid'
+  })
+  const ws = workspace()
+    .add(resource('contacts', {
+      local: localReplica,
+      remote: remoteReplica
+    }))
+
+  await ws.open('contacts')
+  await ws.createIn('contacts', offlineLocal)
+
+  assert.deepEqual(ws.dataset('contacts').subjects, [originalRemote, offlineLocal])
+  assert.equal(ws.status.sources['contacts:solid'].state, 'sync-pending')
+  assert.equal(ws.status.sources['contacts:solid'].syncPending, true)
+
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/contacts.ttl': graphDocument([originalRemote, laterRemote])
+    }
+  })
+
+  ws.add(solid.client(client))
+  const status = await ws.sync('contacts')
+
+  assert.equal(status.ok, true)
+  assert.equal(status.status, 'synced')
+  assert.deepEqual(status.document.subjects, [originalRemote, laterRemote, offlineLocal])
+  assert.deepEqual(ws.dataset('contacts').subjects, [originalRemote, laterRemote, offlineLocal])
+  assert.equal(ws.status.sources['contacts:solid'].state, 'ready')
+  assert.equal(ws.status.sources['contacts:solid'].syncPending, false)
+  assert.deepEqual(client.calls, [
+    ['resource.get', 'https://pod.example/contacts.ttl'],
+    ['resource.put', 'https://pod.example/contacts.ttl', status.document]
+  ])
 })
 
 test('read-only sources report read_only for otherwise valid saves', async () => {

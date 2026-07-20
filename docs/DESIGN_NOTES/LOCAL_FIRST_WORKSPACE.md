@@ -19,13 +19,13 @@ SimplySolid was initially shaped around Solid-backed resources and containers. P
 - a remote Solid source may be offline, unauthorized, stale, or partially synced without making the whole workspace unusable;
 - reconnecting should not force the application to decide low-level graph reconciliation rules.
 
-Margin-notes exposed the problem. The app can have one notes graph in IndexedDB and another notes graph in a remote Turtle resource. Treating that as an application-specific merge is the wrong boundary. It is source/workspace behavior.
+Margin-notes exposed the problem. The app can have one notes graph in IndexedDB and another notes graph in a remote Turtle resource. Treating that as an application-specific merge is the wrong boundary. It is resource/workspace behavior.
 
-The local resource is not a cache of the remote resource. It is a first-class source in the workspace. The remote Solid resource is another first-class source whose availability changes over time.
+The application should work with a logical resource. That resource may have a local replica and a remote Solid replica. The local replica is the working copy that keeps the PWA usable; the remote replica participates when it is reachable and authorized.
 
 ## Design Direction
 
-A workspace is a source-aware OLDMed working set. It should be able to contain multiple resources, regardless of where those resources live, and expose them as one open-world dataset.
+A workspace is a source-aware OLDMed working set. It should be able to contain logical resources, regardless of where their replicas live, and expose them as one open-world dataset.
 
 For local-first applications, the workspace should be useful as soon as local sources are open. Remote sources can join later, fail independently, and sync when possible. Network failure is source status, not application failure.
 
@@ -96,33 +96,43 @@ graph.resource({
 Preferred application-facing shape:
 
 ```js
-import { workspace, local, solid } from '@muze-labs/solid-workspace'
+import { workspace, resource, local, solid } from '@muze-labs/solid-workspace'
 
-const notes = workspace({
-  sources: [
-    local.memory('local-notes', {
+const localParts = [
+  resource('notes', {
+    local: local.memory('notes:local', {
       prefixes: annotationPrefixes,
       document: emptyNotesDocument
     })
-  ]
-})
+  }),
+  resource('settings', {
+    local: local.memory('settings:local', {
+      prefixes: settingsPrefixes,
+      document: emptySettingsDocument
+    })
+  })
+]
 
-await notes.load()
+const notes = workspace()
+  .add(localParts)
+
+await notes.open()
 
 // Later, after Solid connection/discovery:
-notes.setClient(ladingClient)
-notes.addSource(
-  solid.turtleResource(connection.resourceUrl, {
-    id: 'solid-notes',
-    prefixes: annotationPrefixes
+const solidParts = [
+  solid.client(ladingClient),
+  resource('notes', {
+    remote: solid.turtleResource(connection.resourceUrl, {
+      id: 'notes:solid',
+      prefixes: annotationPrefixes
+    })
   })
-)
+]
 
-await notes.load({ sources: ['solid-notes'] })
-await notes.sync({
-  from: ['local-notes'],
-  into: 'solid-notes'
-})
+notes.add(solidParts)
+
+await notes.open('notes')
+await notes.sync('notes')
 ```
 
 The factory families should grow from the concrete source types applications need:
@@ -131,12 +141,20 @@ The factory families should grow from the concrete source types applications nee
 local.memory(id, options)
 local.indexedDB(name, options)
 local.localStorage(name, options)
+solid.client(ladingClient)
 solid.turtleResource(url, options)
 solid.turtleContainer(url, options)
+resource(id, { local, remote })
 graph.resource(options)
 ```
 
-Solid-backed sources can implement the same contract by reading/writing Turtle through Lading and Metro-OLDM. IndexedDB-backed sources can store OLDMed graph documents directly and serialize to Turtle when asked.
+`workspace.add()` should accept either one explicit workspace part or an array of explicit workspace parts returned by these factories. It should reject arbitrary objects, even if they look source-like. This keeps the fluent API compact without making it magical, while still letting applications move sets of resources around as data.
+
+Logical `resource()` parts are the app-facing concept. Source factories are lower-level replicas. Applications can still add a source directly for advanced cases, but normal PWA code should open, save, and sync by logical resource id.
+
+`workspace.open()` is the local-first application entry point. It should be tolerant by default: source failures update source status, while the workspace continues serving data from sources that did open. Lower-level `workspace.load()` can remain strict for tests and tools that want an exception.
+
+Solid-backed replicas can implement the same contract by reading/writing Turtle through Lading and Metro-OLDM. IndexedDB-backed replicas can store OLDMed graph documents directly and serialize to Turtle when asked.
 
 The workspace should not care whether the source is backed by:
 
@@ -148,9 +166,53 @@ The workspace should not care whether the source is backed by:
 
 It should care that the source can expose a graph document, can be identified, and can declare whether it is writable.
 
+## Logical Resources And Replicas
+
+A logical resource groups replicas of the same conceptual document:
+
+```js
+resource('notes', {
+  local: local.indexedDB('workspace-cache', {
+    key: 'notes'
+  }),
+  remote: solid.turtleResource(notesUrl, {
+    id: 'notes:solid'
+  })
+})
+```
+
+Expected behavior:
+
+```txt
+first online open:
+  open local replica
+  fetch remote Turtle
+  reconcile local and remote
+  store the merged graph in the local replica
+  render from the local working copy
+
+offline reopen:
+  open local replica
+  remote replica reports offline
+  render last known graph from the local working copy
+
+offline edit:
+  save to local replica
+  mark remote replica sync-pending
+
+later online sync:
+  fetch current remote Turtle
+  reconcile remote graph with local working copy
+  write merged graph to remote
+  store merged graph locally
+  clear sync-pending
+```
+
+This is different from treating local and remote as unrelated peer sources. The app works with `notes`; local and remote are replicas of `notes`.
+
 ## Source Availability
 
-Each source should have its own status. A workspace may be "ready" while one source is offline or needs authorization.
+Each source/replica should have its own status. A workspace may be "ready" while one source is offline or needs authorization.
 
 Useful first statuses:
 
@@ -172,6 +234,13 @@ workspace.status.sources['solid-notes'].state // 'offline'
 
 The important rule is that a remote source failure should not discard or block local data. A failed Solid request means that source cannot currently participate; it does not make the workspace dataset empty.
 
+Source failures should be classified into useful states when possible:
+
+- HTTP `401` and `403` become `auth-needed`;
+- missing resources can open as empty graph documents;
+- network/client absence can become `offline`;
+- other failures become `error`.
+
 ## Write Model
 
 For PWA-style apps, writes should commit locally first.
@@ -179,26 +248,34 @@ For PWA-style apps, writes should commit locally first.
 Conceptual flow:
 
 ```js
-await workspace.save(object, {
-  target: 'local-notes'
+const note = await workspace.createIn('notes', {
+  id: 'urn:note:chapter-01:margin-12',
+  rdf$type: 'schema$Comment',
+  schema$text: 'Useful spell.'
 })
 
-workspace.markSyncPending({
-  from: 'local-notes',
-  into: 'solid-notes'
-})
+note.schema$text = 'Useful spell, revisit.'
+await workspace.save(note)
 ```
 
-Later, when the remote source is reachable:
+Later, when the remote replica is reachable:
 
 ```js
-await workspace.sync({
-  from: 'local-notes',
-  into: 'solid-notes'
-})
+await workspace.sync('notes')
 ```
 
 This does not require the first implementation slice to introduce an operation log. But the API shape should leave room for dirty markers, tombstones, and pending sync state. We should avoid APIs that assume every save can immediately reach the network.
+
+The first implementation can support a small explicit marker:
+
+```js
+await workspace.createIn('notes', note)
+
+workspace.status.sources['solid-notes'].state // 'sync-pending'
+workspace.status.sources['solid-notes'].syncPending // true
+```
+
+The logical resource decides that local writes should mark its remote replica as pending. Application code should not need to know the source ids for the normal path.
 
 ## Dataset Semantics
 
@@ -223,11 +300,28 @@ Reading:
 
 ```js
 const graph = workspace.dataset({
-  sources: ['local-notes', 'solid-notes']
+  resources: ['notes']
 })
 ```
 
 Syncing:
+
+```js
+await workspace.sync('notes')
+```
+
+For the first local-first slice, sync means additive projection:
+
+1. load the local working copy;
+2. load the current remote graph if possible;
+3. reconcile local and remote facts;
+4. write the merged graph to the remote replica when available;
+5. write the merged graph back to the local replica;
+6. clear sync-pending state after a successful remote write.
+
+Deletion, conflict resolution, change feeds, tombstones, operation logs, and last-write-wins policy are explicit non-goals for the first slice. They should be added only when the workspace has enough provenance to make them honest.
+
+The older source-to-source form remains useful for tests, migration tools, and advanced callers:
 
 ```js
 await workspace.sync({
@@ -235,15 +329,6 @@ await workspace.sync({
   into: 'solid-notes'
 })
 ```
-
-For the first local-first slice, sync means additive projection:
-
-1. load the source dataset;
-2. load the target resource graph;
-3. merge source facts into the target graph;
-4. write the merged target resource back if it changed.
-
-Deletion, conflict resolution, change feeds, tombstones, operation logs, and last-write-wins policy are explicit non-goals for the first slice. They should be added only when the workspace has enough provenance to make them honest.
 
 ## Turtle Requirement
 
@@ -267,6 +352,7 @@ The important invariant is that a resource is not just an opaque JavaScript cach
 `solid-workspace` should own:
 
 - generic resource source descriptors;
+- logical resources with local and remote replicas;
 - loading sources into OLDMed graph documents;
 - local-first source availability status;
 - source-aware dataset union;
@@ -307,19 +393,19 @@ Desired behavior:
 
 ```txt
 create workspace
-add local notes resource source
-render workspace dataset
-save edits to local source
+add notes resource with local replica
+render workspace dataset from notes local working copy
+save edits to notes local replica
 
 on Solid connect:
-  add remote notes resource source
-  load remote source
-  sync local -> remote if pending or changed
+  add remote replica to notes
+  open notes
+  sync notes if pending or changed
   render workspace dataset
 
 while offline:
-  keep saving to local source
-  mark remote sync pending
+  keep saving to notes local replica
+  mark notes remote replica sync pending
 ```
 
 This lets the margin-notes app talk about notes and connection state, while SimplySolid/Solid Workspace handle local-first source mechanics.
@@ -327,6 +413,7 @@ This lets the margin-notes app talk about notes and connection state, while Simp
 ## Open Questions
 
 - Is `graph.resource()` the right name for the low-level source contract, with `local.*` and `solid.*` factories for normal application code?
+- Is `resource(id, { local, remote })` the right app-facing name for a logical local-first document?
 - Should `source.turtle()` be required for all resource sources immediately, or should it be a capability checked by export/sync features?
 - Should local sources store Turtle, OLDMed graph documents, or both?
 - How should fact-level provenance survive after a dataset union?
@@ -341,9 +428,10 @@ The smallest useful slice should prove:
 
 1. a memory or IndexedDB-backed resource source can load/save an OLDMed graph document;
 2. the same source can produce Turtle from that document;
-3. a workspace can open and serve a dataset when only the local source is available;
-4. a Solid resource source can be added later when network/auth is available;
-5. `workspace.dataset()` returns their open-world union;
-6. local writes continue while the remote source is offline and leave visible sync-pending status;
-7. `workspace.sync({ from: 'local', into: 'remote' })` writes an additive merge to the target source when it becomes available;
-8. margin-notes can replace its manual local/remote coordination with this source model.
+3. a logical resource can be backed by a local replica and later gain a remote Solid replica;
+4. a workspace can open and serve a dataset when only the local replica is available;
+5. a Solid replica can be added later when network/auth is available;
+6. `workspace.dataset({ resources: ['notes'] })` returns the logical resource graph from the local working copy;
+7. local writes continue while the remote replica is offline and leave visible sync-pending status;
+8. `workspace.sync('notes')` writes an additive merge to the remote replica when it becomes available and updates the local replica;
+9. margin-notes can replace its manual local/remote coordination with this resource/replica model.

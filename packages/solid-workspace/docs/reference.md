@@ -1,8 +1,10 @@
 # Solid Workspace reference
 
-Solid Workspace is the source-aware data layer over Lading and OLDMed objects. It loads resources and containers through a supplied Lading client, tracks where objects came from, and writes changes back with per-resource status.
+Solid Workspace is the source-aware data layer over OLDMed graph resources. It loads local and Solid resources into one working set, tracks where objects came from, and writes changes back with per-resource status.
 
 It does not provide authentication, RDF parsing, filesystem operations, SimplyFlow bindings, setup conventions, or UI state.
+
+The long-term workspace model is local-first. Applications should be able to open local sources, keep rendering and writing while offline, then sync with Solid sources when network and authorization return.
 
 ## Exports
 
@@ -10,6 +12,8 @@ It does not provide authentication, RDF parsing, filesystem operations, SimplyFl
 import {
   workspace,
   collection,
+  graph,
+  local,
   mergeGraphDocuments,
   solid,
   SolidWorkspace,
@@ -24,6 +28,8 @@ Default export:
   packageName,
   workspace,
   collection,
+  graph,
+  local,
   mergeGraphDocuments,
   solid
 }
@@ -33,7 +39,10 @@ Default export:
 
 ```js
 solid.resource(url, options)
+solid.turtleResource(url, options)
 solid.container(url, options)
+graph.resource(options)
+local.memory(id, options)
 ```
 
 Options:
@@ -70,6 +79,65 @@ Options:
 - `sources`: source descriptors.
 - `collections`: named collection descriptors.
 
+Current source descriptors are Solid-oriented. The local-first design adds generic OLDMed graph resource sources so IndexedDB, memory, and file-backed resources can participate in the same workspace as Solid resources.
+
+`graph.resource()` is the low-level contract for a graph resource source:
+
+```js
+graph.resource({
+  id: 'local-notes',
+  url: 'memory://local-notes',
+  async load() {
+    return oldmedGraphDocument
+  },
+  async save(document) {
+    return { ok: true, status: 'saved', document }
+  },
+  async turtle() {
+    return turtleText
+  }
+})
+```
+
+`local.memory()` is the first convenience factory:
+
+```js
+const localNotes = local.memory('local-notes', {
+  prefixes,
+  document: {
+    format: 'oldmed-graph',
+    version: 1,
+    prefixes,
+    subjects: []
+  }
+})
+```
+
+It can be used without a Lading client:
+
+```js
+const ws = workspace({
+  sources: [localNotes]
+})
+
+await ws.load()
+```
+
+When Solid becomes available later, keep the workspace and add the remote source:
+
+```js
+ws.setClient(ladingClient)
+ws.addSource(solid.turtleResource(notesUrl, {
+  id: 'solid-notes'
+}))
+
+await ws.load({ sources: ['solid-notes'] })
+await ws.sync({
+  from: ['local-notes'],
+  into: 'solid-notes'
+})
+```
+
 ## Workspace methods
 
 ```js
@@ -77,6 +145,8 @@ await ws.load()
 await ws.load({ sources: ['contacts'] })
 await ws.loadSource('contacts')
 
+ws.addSource(source)
+ws.setClient(ladingClient)
 ws.dataset()
 await ws.sync({ from: ['local'], into: 'remote' })
 
@@ -130,6 +200,8 @@ await ws.sync({
 ```
 
 This is intentionally additive. It does not interpret absence as deletion and does not resolve semantic conflicts beyond preserving all values.
+
+For PWA-style apps, local resources should be first-class sources rather than caches of Solid resources. Remote source failures should become source status such as `offline` or `auth-needed`, while the workspace continues serving the local dataset.
 
 ## Collections
 

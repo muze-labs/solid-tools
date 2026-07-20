@@ -129,7 +129,30 @@ Work:
 - setup-needed and repair-needed status;
 - setup UI state exposed through app data, without SimplySolid becoming a UI framework.
 
-## Milestone 7 — semantic templates
+## Milestone 7 — local-first workspace sources
+
+Goal: make PWA-style applications work from local graph resources first, then sync with Solid resources when network and authorization are available.
+
+Work:
+
+- define generic OLDMed graph resource sources independent of Solid transport;
+- add factory methods such as `graph.resource()`, `local.memory()`, `local.indexedDB()`, and `solid.turtleResource()`;
+- add memory and IndexedDB-backed resource sources;
+- require or expose Turtle serialization for resource sources;
+- expose per-source availability status such as `ready`, `offline`, `auth-needed`, and `sync-pending`;
+- let a workspace open and render from local sources while remote sources fail independently;
+- support local-first writes that mark remote sync pending;
+- sync a local source additively into a Solid resource when it becomes available;
+- migrate margin-notes from manual local/remote merge coordination to workspace sources.
+
+Exit criteria:
+
+- a PWA app can create and edit data offline;
+- reconnecting a Solid source syncs local changes without replacing the local dataset;
+- remote source failures are visible as source status and do not make the workspace unusable;
+- every resource source can expose an OLDMed graph document and produce Turtle for inspection/export.
+
+## Milestone 8 — semantic templates
 
 Goal: make linked-data-native reusable templates inspectable.
 
@@ -142,7 +165,7 @@ Work:
 - compare template usage to oldm-shape fragments;
 - add diagnostics.
 
-## Milestone 8 — residential and SimplyCode integration support
+## Milestone 9 — residential and SimplyCode integration support
 
 This should mostly happen outside `solid-tools`, but `solid-tools` must preserve the boundaries that make it possible.
 

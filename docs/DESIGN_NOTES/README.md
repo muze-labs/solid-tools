@@ -6,6 +6,7 @@ Documents:
 
 - `SIMPLYCODE_DESIGN.md` — recipe-driven IDE for vertical-slice development.
 - `SIMPLYSOLID_DESIGN.md` — SimplyFlow extension for Solid-backed applications.
+- `LOCAL_FIRST_WORKSPACE.md` — PWA/offline-first workspace sources, OLDMed graph documents, Turtle export, source status, and additive sync.
 - `SIMPLYSOLID_REUSABLE_TEMPLATES.md` — reusable templates/components with linked-data semantics.
 - `RESIDENTIAL_PROGRAMMING_DESIGN.md` — optional in-app live editing of SimplyFlow applications through component overlays.
 - `SIMPLYFLOW_COMPONENT_LOADING_AND_OVERLAYS.md` — component dependency loading, app/overlay merge order, and mod composition rules for the residential programming proof of concept.

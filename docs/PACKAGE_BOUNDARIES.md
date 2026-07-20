@@ -52,13 +52,18 @@ It does not choose UI components, load Solid resources, or generate app code.
 
 ## `@muze-labs/solid-workspace`
 
-Solid Workspace owns source-aware linked-data working sets over Solid resources and containers. It owns:
+Solid Workspace owns source-aware linked-data working sets over local and remote OLDMed graph resources. Solid resources and containers are important source types, but the workspace must also support PWA/offline sources such as IndexedDB and memory-backed resources. It owns:
 
-- resource/container source descriptors;
+- generic graph resource source descriptors;
+- Solid resource/container source descriptors;
 - loading RDF resources through Lading/Metro/OLDM;
+- loading local OLDMed graph resources without network access;
 - tracking which data came from which source;
+- per-source availability and sync-pending status;
 - collection views over a workspace;
 - `createIn` routing;
+- local-first writes where configured by the application;
+- additive source-to-source sync;
 - read-only source handling;
 - `save()` and `saveAll()` semantics.
 
@@ -70,11 +75,13 @@ SimplySolid is the SimplyFlow runtime extension. It owns:
 
 - `app.solid`;
 - shape-backed collection handles under `app.solid.data.*`;
+- local and Solid workspace source setup for applications;
 - Solid profile/storage/setup status exposed to the app;
+- PWA-friendly workspace status exposed to the app;
 - validation before writes;
 - small runtime conventions needed by beginner apps.
 
-It does not authenticate users itself, parse Turtle itself, expose a filesystem API, search for reusable components, generate source code, or silently read local overlays.
+It does not authenticate users itself, parse Turtle itself, expose a filesystem API, search for reusable components, generate source code, or silently read local overlays. It should make offline-capable app setup easy, but the low-level source and sync mechanics belong in Solid Workspace.
 
 ## `@muze-labs/simplysolid-templates`
 

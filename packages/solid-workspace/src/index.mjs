@@ -1,3 +1,5 @@
+import oldm from '@muze-nl/oldm'
+
 export const packageName = '@muze-labs/solid-workspace'
 
 export function workspace(options = {}) {
@@ -62,8 +64,58 @@ export const solid = {
   resource(url, options = {}) {
     return source('resource', url, options)
   },
+  turtleResource(url, options = {}) {
+    return source('resource', url, options)
+  },
   container(url, options = {}) {
     return source('container', ensureSlash(url), options)
+  }
+}
+
+export const graph = {
+  resource(options = {}) {
+    return graphResource(options)
+  }
+}
+
+export const local = {
+  memory(idOrOptions, options = {}) {
+    const config = typeof idOrOptions === 'string'
+      ? { ...options, id: idOrOptions }
+      : { ...idOrOptions }
+    const id = config.id ?? config.key ?? 'local-memory'
+    const url = config.url ?? `memory://${encodeURIComponent(id)}`
+    let document = graphDocumentFrom(config.document ?? {
+      format: config.format ?? 'oldmed-graph',
+      version: config.version ?? 1,
+      prefixes: config.prefixes ?? {},
+      subjects: []
+    })
+
+    return graphResource({
+      ...config,
+      id,
+      url,
+      local: true,
+      async load() {
+        return cloneGraphDocument(document)
+      },
+      async save(value) {
+        document = graphDocumentFrom(value)
+        return {
+          ok: true,
+          status: 'saved',
+          sourceUrl: url,
+          document: cloneGraphDocument(document)
+        }
+      },
+      async turtle() {
+        return graphDocumentToTurtle(document, {
+          url,
+          prefixes: config.prefixes
+        })
+      }
+    })
   }
 }
 
@@ -74,10 +126,6 @@ export class SolidWorkspace {
     }
 
     const client = options.solid ?? options.lading ?? options.client
-
-    if (!client) {
-      throw new TypeError('solid-workspace: a Lading client is required')
-    }
 
     this.solid = client
     this.sources = normalizeSources(options.sources ?? [])
@@ -92,13 +140,37 @@ export class SolidWorkspace {
     )
   }
 
+  addSource(sourceOrSources) {
+    const sources = normalizeSources(Array.isArray(sourceOrSources) ? sourceOrSources : [sourceOrSources])
+
+    for (const descriptor of sources) {
+      const existing = this.sources.findIndex(source => source.id === descriptor.id)
+      if (existing >= 0) {
+        this.sources[existing] = descriptor
+      } else {
+        this.sources.push(descriptor)
+      }
+      this.sourceById.set(descriptor.id, descriptor)
+    }
+
+    return sources.length === 1 ? sources[0] : sources
+  }
+
+  setClient(client) {
+    this.solid = client
+    return this
+  }
+
   async load(options = {}) {
     const sources = normalizeLoadSources(this, options.sources ?? this.sources)
-    const pending = this.records.filter(record => record.status === 'new')
-    this.records = pending
+    const preserved = this.records.filter(record => (
+      record.status === 'new'
+      || !recordBelongsToSources(record, sources)
+    ))
+    this.records = preserved
     this.objects = new WeakMap()
 
-    for (const record of pending) {
+    for (const record of preserved) {
       this.objects.set(record.object, record)
     }
 
@@ -113,6 +185,7 @@ export class SolidWorkspace {
     const descriptor = resolveSource(this, sourceOrId)
 
     if (descriptor.kind === 'container') {
+      assertSolidClient(this)
       const entries = await this.solid.container(descriptor.url).contains(descriptor.options)
 
       for (const entry of entries) {
@@ -127,16 +200,41 @@ export class SolidWorkspace {
       return entries
     }
 
+    if (typeof descriptor.load === 'function') {
+      const document = graphDocumentFrom(await descriptor.load({
+        source: descriptor,
+        workspace: this
+      }))
+      const objects = document.subjects
+
+      for (const object of objects) {
+        this.track(object, {
+          source: descriptor,
+          sourceUrl: descriptor.url,
+          status: 'loaded'
+        })
+      }
+
+      return objects
+    }
+
+    assertSolidClient(this)
     const response = await this.solid.resource(descriptor.url).get(descriptor.options)
     const objects = subjectsFromResponse(response)
 
+    this.trackObjects(objects, {
+      response,
+      source: descriptor,
+      sourceUrl: descriptor.url,
+      status: 'loaded'
+    })
+
+    return objects
+  }
+
+  trackObjects(objects, options = {}) {
     for (const object of objects) {
-      this.track(object, {
-        response,
-        source: descriptor,
-        sourceUrl: descriptor.url,
-        status: 'loaded'
-      })
+      this.track(object, options)
     }
 
     return objects
@@ -189,7 +287,7 @@ export class SolidWorkspace {
       }
     }
 
-    const response = await this.solid.resource(target.url).put(document, writeOptions(target, options.writeOptions))
+    const response = await saveGraphDocument(this, target, document, options.writeOptions)
 
     return {
       ok: true,
@@ -208,6 +306,15 @@ export class SolidWorkspace {
       throw new Error('solid-workspace: graph documents can only be loaded from resource sources')
     }
 
+    if (typeof descriptor.load === 'function') {
+      return graphDocumentFrom(await descriptor.load({
+        source: descriptor,
+        workspace: this,
+        ...options.readOptions
+      }))
+    }
+
+    assertSolidClient(this)
     try {
       const response = await this.solid.resource(descriptor.url).get({
         ...descriptor.options,
@@ -323,6 +430,21 @@ export class SolidWorkspace {
     }
 
     try {
+      if (typeof record.source?.save === 'function') {
+        const document = this.dataset({
+          sources: [record.source.id]
+        })
+        const response = await saveGraphDocument(this, record.source, document, options)
+        record.sourceUrl = record.source.url
+        record.created = false
+        return updateRecordStatus(record, {
+          ok: true,
+          status: record.deleted ? 'deleted' : 'saved',
+          response
+        })
+      }
+
+      assertSolidClient(this)
       if (record.deleted) {
         const response = await this.solid.resource(record.sourceUrl).delete(options)
         return updateRecordStatus(record, { ok: true, status: 'deleted', response })
@@ -455,6 +577,32 @@ function source(kind, url, options) {
   })
 }
 
+function graphResource(options = {}) {
+  if (!options || typeof options !== 'object') {
+    throw new TypeError('solid-workspace: graph resource options must be an object')
+  }
+  if (!options.id) {
+    throw new TypeError('solid-workspace: graph resource id is required')
+  }
+  if (!options.url) {
+    throw new TypeError('solid-workspace: graph resource url is required')
+  }
+  if (typeof options.load !== 'function') {
+    throw new TypeError('solid-workspace: graph resource load() is required')
+  }
+
+  return Object.freeze({
+    kind: 'resource',
+    readOnly: Boolean(options.readOnly),
+    shape: options.shape ?? null,
+    options: options.options ?? {},
+    writeOptions: options.writeOptions,
+    ...options,
+    id: options.id,
+    url: String(options.url)
+  })
+}
+
 function normalizeSources(sources) {
   if (!Array.isArray(sources)) {
     throw new TypeError('solid-workspace: sources must be an array')
@@ -514,10 +662,15 @@ function recordsForSources(currentWorkspace, sources) {
   const descriptors = new Set(normalizeLoadSources(currentWorkspace, sources))
   const ids = new Set([...descriptors].map(source => source.id))
 
-  return currentWorkspace.records.filter(record => {
+  return currentWorkspace.records.filter(record => !record.deleted).filter(record => {
     const source = record.source?.parent ?? record.source
     return source && (descriptors.has(source) || ids.has(source.id))
   })
+}
+
+function recordBelongsToSources(record, sources) {
+  const source = record.source?.parent ?? record.source
+  return Boolean(source && sources.some(candidate => candidate === source || candidate.id === source.id))
 }
 
 function collectionIncludesRecord(descriptor, record) {
@@ -708,6 +861,81 @@ function graphDocumentComparable(document) {
   }
 }
 
+function cloneGraphDocument(document) {
+  const graphDocument = graphDocumentFrom(document)
+  return {
+    ...graphDocument,
+    prefixes: cloneValue(graphDocument.prefixes),
+    subjects: cloneValue(graphDocument.subjects)
+  }
+}
+
+function graphDocumentToTurtle(document, options = {}) {
+  const graphDocument = graphDocumentFrom(document)
+  const context = oldm.context({
+    defaultGraph: options.url,
+    prefixes: {
+      ...graphDocument.prefixes,
+      ...options.prefixes
+    }
+  })
+  const graph = context.parse('', options.url, 'text/turtle')
+
+  for (const subject of graphDocument.subjects) {
+    writeSubjectToGraph({ graph, subject })
+  }
+
+  return graph.write()
+}
+
+function writeSubjectToGraph({ graph, subject }) {
+  if (!subject?.id) return null
+
+  for (const [predicate, value] of Object.entries(subject)) {
+    if (predicate === 'id') continue
+
+    graph.set(subject.id, predicate, graphValueFromObjectValue({ graph, value }))
+  }
+
+  return subject.id
+}
+
+function graphValueFromObjectValue({ graph, value }) {
+  if (Array.isArray(value)) {
+    return value.map(item => graphValueFromObjectValue({ graph, value: item }))
+  }
+
+  if (isObject(value)) {
+    if (value.id) {
+      writeSubjectToGraph({ graph, subject: value })
+      return value.id
+    }
+
+    return JSON.stringify(value)
+  }
+
+  return value
+}
+
+async function saveGraphDocument(workspace, source, document, options = {}) {
+  if (typeof source.save === 'function') {
+    return source.save(document, {
+      source,
+      workspace,
+      ...options
+    })
+  }
+
+  assertSolidClient(workspace)
+  return workspace.solid.resource(source.url).put(document, writeOptions(source, options))
+}
+
+function assertSolidClient(workspace) {
+  if (!workspace.solid) {
+    throw new TypeError('solid-workspace: a Lading client is required for Solid sources')
+  }
+}
+
 function cloneValue(value) {
   if (Array.isArray(value)) {
     return value.map(cloneValue)
@@ -784,5 +1012,7 @@ export default {
   workspace,
   collection,
   mergeGraphDocuments,
+  graph,
+  local,
   solid
 }

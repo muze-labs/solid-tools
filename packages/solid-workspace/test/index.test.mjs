@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { collection, mergeGraphDocuments, packageName, solid, workspace } from '../src/index.mjs'
+import { collection, graph, local, mergeGraphDocuments, packageName, solid, workspace } from '../src/index.mjs'
 import { field, shape } from '@muze-labs/oldm-shape'
 
 test('solid-workspace scaffold exports source descriptors', () => {
@@ -13,6 +13,13 @@ test('solid-workspace scaffold exports source descriptors', () => {
     shape: null,
     options: {}
   })
+  assert.equal(graph.resource({
+    id: 'memory',
+    url: 'memory://notes',
+    async load() {
+      return graphDocument([])
+    }
+  }).kind, 'resource')
 })
 
 test('loads direct resources and tracks object source urls', async () => {
@@ -322,6 +329,69 @@ test('workspace sync additively projects selected sources into a target resource
     ['resource.get', 'https://pod.example/remote.ttl'],
     ['resource.put', 'https://pod.example/remote.ttl', status.document]
   ])
+})
+
+test('local memory resources open without a Solid client and export Turtle', async () => {
+  const ada = {
+    id: 'urn:contact:ada',
+    rdf$type: 'schema$Person',
+    schema$name: 'Ada'
+  }
+  const localNotes = local.memory('local-contacts', {
+    prefixes: { schema: 'https://schema.org/' },
+    document: graphDocument([ada])
+  })
+  const ws = workspace({
+    sources: [localNotes]
+  })
+
+  await ws.load()
+  const turtle = await localNotes.turtle()
+
+  assert.deepEqual(ws.dataset().subjects, [ada])
+  assert.match(turtle, /schema:Person/)
+  assert.match(turtle, /Ada/)
+})
+
+test('workspace can add a Solid source later and sync local data into it', async () => {
+  const localContact = {
+    id: 'urn:contact:local',
+    rdf$type: 'schema$Person',
+    schema$name: 'Local'
+  }
+  const remoteContact = {
+    id: 'urn:contact:remote',
+    rdf$type: 'schema$Person',
+    schema$name: 'Remote'
+  }
+  const localSource = local.memory('local-contacts', {
+    document: graphDocument([localContact])
+  })
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/contacts.ttl': graphDocument([remoteContact])
+    }
+  })
+  const ws = workspace({
+    sources: [localSource]
+  })
+
+  await ws.load()
+  ws.setClient(client)
+  ws.addSource(solid.turtleResource('https://pod.example/contacts.ttl', {
+    id: 'solid-contacts'
+  }))
+  await ws.load({ sources: ['solid-contacts'] })
+
+  assert.deepEqual(ws.dataset().subjects, [localContact, remoteContact])
+
+  const status = await ws.sync({
+    from: ['local-contacts'],
+    into: 'solid-contacts'
+  })
+
+  assert.equal(status.status, 'synced')
+  assert.deepEqual(status.document.subjects, [remoteContact, localContact])
 })
 
 test('read-only sources report read_only for otherwise valid saves', async () => {

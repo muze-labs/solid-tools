@@ -74,6 +74,8 @@ const service = simplySolid(config)
 
 service.install(app)
 await service.sync()
+service.dataset()
+await service.syncResources({ from: ['local'], into: 'remote' })
 await service.checkSetup()
 await service.setup()
 
@@ -87,6 +89,10 @@ service.data.contacts
 `install(app)` assigns `app.solid = service`. If `app.data` exists, it also assigns `app.data.solid = service.status`.
 
 `sync()` loads all workspace sources and refreshes collection handles.
+
+`dataset()` returns the Solid Workspace open-world graph document for selected sources.
+
+`syncResources()` delegates to Solid Workspace resource sync, then refreshes collection handles. The first sync strategy is additive: it preserves known subjects and facts, but does not treat missing facts as deletions.
 
 `checkSetup()` checks required containers and updates `service.status.setup`.
 

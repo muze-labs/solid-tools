@@ -11,6 +11,53 @@ export function collection(options = {}) {
   }
 }
 
+export function mergeGraphDocuments(documents = [], options = {}) {
+  if (!Array.isArray(documents)) {
+    throw new TypeError('solid-workspace: graph documents must be an array')
+  }
+
+  const base = graphDocumentFrom(documents[0])
+  const merged = {
+    format: options.format ?? base.format,
+    version: options.version ?? base.version,
+    prefixes: {},
+    subjects: []
+  }
+  const subjectsById = new Map()
+
+  for (const document of documents.map(graphDocumentFrom)) {
+    Object.assign(merged.prefixes, document.prefixes)
+
+    for (const subject of document.subjects) {
+      if (!subject?.id) continue
+
+      const current = subjectsById.get(subject.id)
+      if (!current) {
+        const clone = cloneValue(subject)
+        subjectsById.set(subject.id, clone)
+        merged.subjects.push(clone)
+        continue
+      }
+
+      mergeSubject(current, subject)
+    }
+  }
+
+  const target = {
+    ...merged,
+    changed: !graphDocumentsEqual(base, merged)
+  }
+
+  if (Object.keys(target.prefixes).length === 0) {
+    delete target.prefixes
+  }
+
+  if (target.format == null) delete target.format
+  if (target.version == null) delete target.version
+
+  return target
+}
+
 export const solid = {
   resource(url, options = {}) {
     return source('resource', url, options)
@@ -93,6 +140,92 @@ export class SolidWorkspace {
     }
 
     return objects
+  }
+
+  dataset(options = {}) {
+    const records = recordsForSources(this, options.sources ?? this.sources)
+    return mergeGraphDocuments([
+      {
+        format: options.format,
+        version: options.version,
+        prefixes: options.prefixes,
+        subjects: records.map(record => record.object)
+      }
+    ], options)
+  }
+
+  async sync(options = {}) {
+    const target = resolveSource(this, options.into)
+
+    if (target.kind !== 'resource') {
+      throw new Error('solid-workspace: sync target must be a resource source')
+    }
+
+    if (target.readOnly) {
+      throw new Error(`solid-workspace: source ${target.id} is read-only`)
+    }
+
+    const sourceDocument = options.document ?? this.dataset({
+      sources: options.from ?? this.sources,
+      format: options.format,
+      version: options.version,
+      prefixes: options.prefixes
+    })
+    const targetDocument = options.loadTarget === false
+      ? graphDocumentFrom(options.targetDocument)
+      : await this.loadGraphDocument(target, options)
+    const document = mergeGraphDocuments([
+      targetDocument,
+      sourceDocument
+    ], options)
+
+    if (!document.changed && options.force !== true) {
+      return {
+        ok: true,
+        status: 'unchanged',
+        source: target,
+        sourceUrl: target.url,
+        document
+      }
+    }
+
+    const response = await this.solid.resource(target.url).put(document, writeOptions(target, options.writeOptions))
+
+    return {
+      ok: true,
+      status: 'synced',
+      source: target,
+      sourceUrl: target.url,
+      document,
+      response
+    }
+  }
+
+  async loadGraphDocument(sourceOrId, options = {}) {
+    const descriptor = resolveSource(this, sourceOrId)
+
+    if (descriptor.kind !== 'resource') {
+      throw new Error('solid-workspace: graph documents can only be loaded from resource sources')
+    }
+
+    try {
+      const response = await this.solid.resource(descriptor.url).get({
+        ...descriptor.options,
+        ...options.readOptions
+      })
+
+      if (response?.status === 404 || response?.status === 410) {
+        return graphDocumentFrom(null)
+      }
+
+      return graphDocumentFrom(response?.data)
+    } catch (error) {
+      const status = error.cause?.status ?? error.response?.status
+      if (status === 404 || status === 410) {
+        return graphDocumentFrom(null)
+      }
+      throw error
+    }
   }
 
   track(object, options = {}) {
@@ -377,6 +510,16 @@ function resolveSource(currentWorkspace, sourceOrId) {
   return sourceOrId
 }
 
+function recordsForSources(currentWorkspace, sources) {
+  const descriptors = new Set(normalizeLoadSources(currentWorkspace, sources))
+  const ids = new Set([...descriptors].map(source => source.id))
+
+  return currentWorkspace.records.filter(record => {
+    const source = record.source?.parent ?? record.source
+    return source && (descriptors.has(source) || ids.has(source.id))
+  })
+}
+
 function collectionIncludesRecord(descriptor, record) {
   if (descriptor.sources.length > 0) {
     const sourceIds = new Set(descriptor.sources)
@@ -421,6 +564,162 @@ function subjectsFromResponse(response) {
   }
 
   return isObject(data) ? [data] : []
+}
+
+function graphDocumentFrom(value) {
+  if (!value) {
+    return {
+      format: null,
+      version: null,
+      prefixes: {},
+      subjects: []
+    }
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      format: null,
+      version: null,
+      prefixes: {},
+      subjects: value.filter(isObject)
+    }
+  }
+
+  if (Array.isArray(value.subjects)) {
+    return {
+      format: value.format ?? null,
+      version: value.version ?? null,
+      prefixes: value.prefixes ?? {},
+      subjects: value.subjects.filter(isObject)
+    }
+  }
+
+  if (value.subjects && typeof value.subjects === 'object') {
+    return {
+      format: value.format ?? null,
+      version: value.version ?? null,
+      prefixes: value.prefixes ?? {},
+      subjects: Object.values(value.subjects).filter(isObject)
+    }
+  }
+
+  if (Array.isArray(value.data)) {
+    return {
+      format: value.format ?? null,
+      version: value.version ?? null,
+      prefixes: value.prefixes ?? {},
+      subjects: value.data.filter(isObject)
+    }
+  }
+
+  if (isObject(value.primary)) {
+    return {
+      format: value.format ?? null,
+      version: value.version ?? null,
+      prefixes: value.prefixes ?? {},
+      subjects: [value.primary]
+    }
+  }
+
+  return {
+    format: null,
+    version: null,
+    prefixes: {},
+    subjects: isObject(value) ? [value] : []
+  }
+}
+
+function mergeSubject(target, incoming) {
+  for (const [predicate, value] of Object.entries(incoming)) {
+    if (predicate === 'id') continue
+
+    if (!Object.hasOwn(target, predicate)) {
+      target[predicate] = cloneValue(value)
+      continue
+    }
+
+    target[predicate] = mergeValues(target[predicate], value)
+  }
+
+  return target
+}
+
+function mergeValues(left, right) {
+  if (valueEquals(left, right)) {
+    return left
+  }
+
+  if (isObject(left) && isObject(right) && left.id && left.id === right.id) {
+    return mergeSubject(left, right)
+  }
+
+  const values = []
+  for (const item of [...arrayValues(left), ...arrayValues(right)]) {
+    if (!values.some(existing => valueEquals(existing, item))) {
+      values.push(cloneValue(item))
+    }
+  }
+
+  return values.length === 1 ? values[0] : values
+}
+
+function arrayValues(value) {
+  return Array.isArray(value) ? value : [value]
+}
+
+function valueEquals(left, right) {
+  return valueKey(left) === valueKey(right)
+}
+
+function valueKey(value) {
+  if (isObject(value)) {
+    return value.id ? `id:${value.id}` : `json:${JSON.stringify(sortObject(value))}`
+  }
+
+  return `${typeof value}:${String(value)}`
+}
+
+function sortObject(value) {
+  if (Array.isArray(value)) {
+    return value.map(sortObject)
+  }
+
+  if (!isObject(value)) {
+    return value
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, sortObject(item)])
+  )
+}
+
+function graphDocumentsEqual(left, right) {
+  return JSON.stringify(sortObject(graphDocumentComparable(left))) === JSON.stringify(sortObject(graphDocumentComparable(right)))
+}
+
+function graphDocumentComparable(document) {
+  return {
+    format: document.format ?? null,
+    version: document.version ?? null,
+    prefixes: document.prefixes ?? {},
+    subjects: document.subjects ?? []
+  }
+}
+
+function cloneValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(cloneValue)
+  }
+
+  if (isObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, cloneValue(item)])
+    )
+  }
+
+  return value
 }
 
 function oldmSourcesOf(record, object, predicate, value) {
@@ -484,5 +783,6 @@ export default {
   packageName,
   workspace,
   collection,
+  mergeGraphDocuments,
   solid
 }

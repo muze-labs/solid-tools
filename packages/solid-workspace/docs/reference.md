@@ -10,6 +10,7 @@ It does not provide authentication, RDF parsing, filesystem operations, SimplyFl
 import {
   workspace,
   collection,
+  mergeGraphDocuments,
   solid,
   SolidWorkspace,
   WorkspaceCollection
@@ -23,6 +24,7 @@ Default export:
   packageName,
   workspace,
   collection,
+  mergeGraphDocuments,
   solid
 }
 ```
@@ -75,6 +77,9 @@ await ws.load()
 await ws.load({ sources: ['contacts'] })
 await ws.loadSource('contacts')
 
+ws.dataset()
+await ws.sync({ from: ['local'], into: 'remote' })
+
 ws.track(object, options)
 ws.sourceOf(object)
 ws.sourcesOf(object, predicate, value)
@@ -95,6 +100,36 @@ Loaded objects are read from Metro-OLDM-shaped response data:
 - `response.data`
 
 `sourceOf()` returns the tracked source for an object. When a parsed OLDM context exposes `context.sources()`, `sourcesOf(object, predicate, value)` delegates fact-level source lookup to it.
+
+## Open-World Dataset
+
+`dataset()` returns a single graph document view over selected workspace sources:
+
+```js
+const graph = ws.dataset({ sources: ['local', 'remote'] })
+```
+
+The dataset uses open-world additive merging. Subjects with different ids are preserved. Subjects with the same id are combined by preserving known facts; conflicting predicate values become multi-values instead of being treated as deletion or replacement.
+
+`mergeGraphDocuments()` exposes the same pure merge primitive for callers that already have graph documents:
+
+```js
+const graph = mergeGraphDocuments([
+  localDocument,
+  remoteDocument
+])
+```
+
+`sync()` projects a dataset into a writable resource source:
+
+```js
+await ws.sync({
+  from: ['local'],
+  into: 'remote'
+})
+```
+
+This is intentionally additive. It does not interpret absence as deletion and does not resolve semantic conflicts beyond preserving all values.
 
 ## Collections
 

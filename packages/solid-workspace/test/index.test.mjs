@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { collection, packageName, solid, workspace } from '../src/index.mjs'
+import { collection, mergeGraphDocuments, packageName, solid, workspace } from '../src/index.mjs'
 import { field, shape } from '@muze-labs/oldm-shape'
 
 test('solid-workspace scaffold exports source descriptors', () => {
@@ -197,6 +197,133 @@ test('delegates fact-level source lookup to OLDM context when available', async 
   assert.equal(ws.sourceOf(contact, 'schema$name', 'Ada').sourceUrl, 'https://pod.example/profile.ttl')
 })
 
+test('mergeGraphDocuments preserves open-world subjects and facts', () => {
+  const result = mergeGraphDocuments([
+    {
+      format: 'oldmed-graph',
+      prefixes: { schema: 'https://schema.org/' },
+      subjects: [
+        {
+          id: 'urn:contact:ada',
+          rdf$type: 'schema$Person',
+          schema$name: 'Ada'
+        }
+      ]
+    },
+    {
+      prefixes: { foaf: 'http://xmlns.com/foaf/0.1/' },
+      subjects: [
+        {
+          id: 'urn:contact:ada',
+          schema$email: 'ada@example.test'
+        },
+        {
+          id: 'urn:contact:grace',
+          rdf$type: 'schema$Person',
+          schema$name: 'Grace'
+        }
+      ]
+    }
+  ])
+
+  assert.equal(result.changed, true)
+  assert.deepEqual(result.prefixes, {
+    schema: 'https://schema.org/',
+    foaf: 'http://xmlns.com/foaf/0.1/'
+  })
+  assert.deepEqual(result.subjects, [
+    {
+      id: 'urn:contact:ada',
+      rdf$type: 'schema$Person',
+      schema$name: 'Ada',
+      schema$email: 'ada@example.test'
+    },
+    {
+      id: 'urn:contact:grace',
+      rdf$type: 'schema$Person',
+      schema$name: 'Grace'
+    }
+  ])
+})
+
+test('workspace dataset exposes multiple resources as one open-world graph', async () => {
+  const adaLocal = {
+    id: 'urn:contact:ada',
+    rdf$type: 'schema$Person',
+    schema$name: 'Ada'
+  }
+  const adaRemote = {
+    id: 'urn:contact:ada',
+    schema$email: 'ada@example.test'
+  }
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/local.ttl': graphDocument([adaLocal]),
+      'https://pod.example/remote.ttl': graphDocument([adaRemote])
+    }
+  })
+  const ws = workspace({
+    solid: client,
+    sources: [
+      solid.resource('https://pod.example/local.ttl', { id: 'local' }),
+      solid.resource('https://pod.example/remote.ttl', { id: 'remote' })
+    ]
+  })
+
+  await ws.load()
+
+  assert.deepEqual(ws.dataset().subjects, [
+    {
+      id: 'urn:contact:ada',
+      rdf$type: 'schema$Person',
+      schema$name: 'Ada',
+      schema$email: 'ada@example.test'
+    }
+  ])
+})
+
+test('workspace sync additively projects selected sources into a target resource', async () => {
+  const local = {
+    id: 'urn:contact:local',
+    rdf$type: 'schema$Person',
+    schema$name: 'Local'
+  }
+  const remote = {
+    id: 'urn:contact:remote',
+    rdf$type: 'schema$Person',
+    schema$name: 'Remote'
+  }
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/local.ttl': graphDocument([local]),
+      'https://pod.example/remote.ttl': graphDocument([remote])
+    }
+  })
+  const ws = workspace({
+    solid: client,
+    sources: [
+      solid.resource('https://pod.example/local.ttl', { id: 'local' }),
+      solid.resource('https://pod.example/remote.ttl', { id: 'remote' })
+    ]
+  })
+
+  await ws.load()
+  const status = await ws.sync({
+    from: ['local'],
+    into: 'remote'
+  })
+
+  assert.equal(status.ok, true)
+  assert.equal(status.status, 'synced')
+  assert.deepEqual(status.document.subjects, [remote, local])
+  assert.deepEqual(client.calls, [
+    ['resource.get', 'https://pod.example/local.ttl'],
+    ['resource.get', 'https://pod.example/remote.ttl'],
+    ['resource.get', 'https://pod.example/remote.ttl'],
+    ['resource.put', 'https://pod.example/remote.ttl', status.document]
+  ])
+})
+
 test('read-only sources report read_only for otherwise valid saves', async () => {
   const ContactShape = shape({
     class: 'schema$Person',
@@ -324,7 +451,22 @@ function createSolidDouble({ resources = {}, containers = {}, contexts = {} } = 
   }
 }
 
+function graphDocument(subjects) {
+  return {
+    format: 'oldmed-graph',
+    subjects
+  }
+}
+
 function responseFor(url, object, options = {}) {
+  if (object?.subjects) {
+    return {
+      status: options.status ?? 200,
+      url,
+      data: object
+    }
+  }
+
   return {
     status: options.status ?? 200,
     url,

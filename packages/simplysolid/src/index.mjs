@@ -78,6 +78,31 @@ export class SimplySolid {
     }
   }
 
+  dataset(options = {}) {
+    return this.workspace.dataset(options)
+  }
+
+  async syncResources(options = {}) {
+    this.status.state = 'syncing'
+    this.status.error = null
+
+    try {
+      const status = await this.workspace.sync(options)
+
+      for (const handle of Object.values(this.data)) {
+        handle.refresh()
+      }
+
+      this.status.state = 'ready'
+      this.status.lastSync = new Date()
+      return status
+    } catch (error) {
+      this.status.state = 'error'
+      this.status.error = error
+      throw error
+    }
+  }
+
   async checkSetup() {
     if (!this.solid) {
       this.status.setup = setupStatus('unknown', this.conventions, this.registrations, {

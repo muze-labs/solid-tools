@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { field, shape } from '@muze-labs/oldm-shape'
+import { solid } from '@muze-labs/solid-workspace'
 import { packageName, simplySolid } from '../src/index.mjs'
 
 test('simplysolid exports package name', () => {
@@ -190,6 +191,44 @@ test('collection create, update, and delete delegate through solid-workspace', a
   ])
 })
 
+test('dataset and syncResources delegate open-world resource sync through the workspace', async () => {
+  const local = {
+    id: 'urn:contact:local',
+    rdf$type: 'schema$Person',
+    schema$name: 'Local'
+  }
+  const remote = {
+    id: 'urn:contact:remote',
+    rdf$type: 'schema$Person',
+    schema$name: 'Remote'
+  }
+  const client = createSolidDouble({
+    resources: {
+      'https://pod.example/storage/local.ttl': graphDocument([local]),
+      'https://pod.example/storage/remote.ttl': graphDocument([remote])
+    }
+  })
+  const service = simplySolid({
+    solid: client,
+    storage: 'https://pod.example/storage/',
+    sources: [
+      solid.resource('https://pod.example/storage/local.ttl', { id: 'local' }),
+      solid.resource('https://pod.example/storage/remote.ttl', { id: 'remote' })
+    ]
+  })
+
+  await service.sync()
+  const dataset = service.dataset()
+  const status = await service.syncResources({
+    from: ['local'],
+    into: 'remote'
+  })
+
+  assert.equal(dataset.subjects.length, 2)
+  assert.equal(status.status, 'synced')
+  assert.deepEqual(status.document.subjects, [remote, local])
+})
+
 test('collection create validates through oldm-shape before writing', async () => {
   const client = createSolidDouble()
   const service = simplySolid({
@@ -327,7 +366,22 @@ function createSolidDouble({
   }
 }
 
+function graphDocument(subjects) {
+  return {
+    format: 'oldmed-graph',
+    subjects
+  }
+}
+
 function responseFor(url, object, options = {}) {
+  if (object?.subjects) {
+    return {
+      status: options.status ?? 200,
+      url,
+      data: object
+    }
+  }
+
   return {
     status: options.status ?? 200,
     url,

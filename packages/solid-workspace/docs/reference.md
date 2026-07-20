@@ -41,6 +41,7 @@ Default export:
 solid.resource(url, options)
 solid.turtleResource(url, options)
 solid.container(url, options)
+solid.client(ladingClient)
 graph.resource(options)
 local.memory(id, options)
 ```
@@ -126,12 +127,16 @@ await ws.load()
 When Solid becomes available later, keep the workspace and add the remote source:
 
 ```js
-ws.setClient(ladingClient)
-ws.addSource(solid.turtleResource(notesUrl, {
-  id: 'solid-notes'
-}))
+const solidParts = [
+  solid.client(ladingClient),
+  solid.turtleResource(notesUrl, {
+    id: 'solid-notes'
+  })
+]
 
-await ws.load({ sources: ['solid-notes'] })
+ws.add(solidParts)
+
+await ws.open('solid-notes')
 await ws.sync({
   from: ['local-notes'],
   into: 'solid-notes'
@@ -144,9 +149,13 @@ await ws.sync({
 await ws.load()
 await ws.load({ sources: ['contacts'] })
 await ws.loadSource('contacts')
+await ws.open()
+await ws.open('contacts')
 
-ws.addSource(source)
+ws.add(source)
+ws.add([source, source])
 ws.setClient(ladingClient)
+ws.addSource(source)
 ws.dataset()
 await ws.sync({ from: ['local'], into: 'remote' })
 
@@ -161,6 +170,10 @@ await ws.saveAll()
 ```
 
 `load()` reads configured sources. Resource sources call `solid.resource(url).get()`. Container sources call `solid.container(url).contains()` and then load each contained resource.
+
+`open()` is the application-facing alias for loading sources. Pass a source id, source descriptor, array of sources, or `{ sources }` options.
+
+`add()` accepts only explicit workspace parts returned by factories such as `local.memory()`, `solid.client()`, `solid.turtleResource()`, or `graph.resource()`. It also accepts arrays of those parts, returns the same workspace for fluent composition, and throws for plain objects.
 
 Loaded objects are read from Metro-OLDM-shaped response data:
 

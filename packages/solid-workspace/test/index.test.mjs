@@ -6,7 +6,9 @@ import { field, shape } from '@muze-labs/oldm-shape'
 test('solid-workspace scaffold exports source descriptors', () => {
   assert.equal(packageName, '@muze-labs/solid-workspace')
   assert.deepEqual(solid.resource('/a.ttl'), {
+    workspacePart: 'source',
     kind: 'resource',
+    type: 'solid-resource',
     id: '/a.ttl',
     url: '/a.ttl',
     readOnly: false,
@@ -20,6 +22,7 @@ test('solid-workspace scaffold exports source descriptors', () => {
       return graphDocument([])
     }
   }).kind, 'resource')
+  assert.equal(solid.client(createSolidDouble()).workspacePart, 'client')
 })
 
 test('loads direct resources and tracks object source urls', async () => {
@@ -372,16 +375,16 @@ test('workspace can add a Solid source later and sync local data into it', async
       'https://pod.example/contacts.ttl': graphDocument([remoteContact])
     }
   })
-  const ws = workspace({
-    sources: [localSource]
-  })
+  const ws = workspace()
+    .add(localSource)
 
-  await ws.load()
-  ws.setClient(client)
-  ws.addSource(solid.turtleResource('https://pod.example/contacts.ttl', {
-    id: 'solid-contacts'
-  }))
-  await ws.load({ sources: ['solid-contacts'] })
+  await ws.open()
+  ws
+    .add(solid.client(client))
+    .add(solid.turtleResource('https://pod.example/contacts.ttl', {
+      id: 'solid-contacts'
+    }))
+  await ws.open('solid-contacts')
 
   assert.deepEqual(ws.dataset().subjects, [localContact, remoteContact])
 
@@ -392,6 +395,25 @@ test('workspace can add a Solid source later and sync local data into it', async
 
   assert.equal(status.status, 'synced')
   assert.deepEqual(status.document.subjects, [remoteContact, localContact])
+})
+
+test('workspace add accepts explicit factory-created parts and arrays of parts', () => {
+  const ws = workspace()
+  const localSource = local.memory('local-contacts')
+  const settingsSource = local.memory('local-settings')
+
+  assert.equal(ws.add(localSource), ws)
+  assert.equal(ws.sources[0], localSource)
+  assert.equal(ws.add([settingsSource]), ws)
+  assert.deepEqual(ws.sources, [localSource, settingsSource])
+  assert.throws(
+    () => ws.add({
+      kind: 'resource',
+      id: 'not-factory-made',
+      url: 'memory://not-factory-made'
+    }),
+    /add\(\) expects a workspace part from a factory/
+  )
 })
 
 test('read-only sources report read_only for otherwise valid saves', async () => {

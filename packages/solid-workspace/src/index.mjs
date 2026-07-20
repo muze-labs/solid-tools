@@ -62,13 +62,34 @@ export function mergeGraphDocuments(documents = [], options = {}) {
 
 export const solid = {
   resource(url, options = {}) {
-    return source('resource', url, options)
+    return source('resource', url, {
+      type: 'solid-resource',
+      ...options
+    })
   },
   turtleResource(url, options = {}) {
-    return source('resource', url, options)
+    return source('resource', url, {
+      type: 'solid-turtle-resource',
+      ...options
+    })
   },
   container(url, options = {}) {
-    return source('container', ensureSlash(url), options)
+    return source('container', ensureSlash(url), {
+      type: 'solid-container',
+      ...options
+    })
+  },
+  client(client, options = {}) {
+    if (!client) {
+      throw new TypeError('solid-workspace: solid client is required')
+    }
+
+    return Object.freeze({
+      ...options,
+      workspacePart: 'client',
+      type: options.type ?? 'lading-client',
+      client
+    })
   }
 }
 
@@ -97,6 +118,7 @@ export const local = {
       id,
       url,
       local: true,
+      type: 'local-memory',
       async load() {
         return cloneGraphDocument(document)
       },
@@ -140,6 +162,27 @@ export class SolidWorkspace {
     )
   }
 
+  add(part) {
+    if (Array.isArray(part)) {
+      for (const item of part) {
+        this.add(item)
+      }
+      return this
+    }
+
+    if (part?.workspacePart === 'source') {
+      this.addSource(part)
+      return this
+    }
+
+    if (part?.workspacePart === 'client') {
+      this.setClient(part.client)
+      return this
+    }
+
+    throw new TypeError('solid-workspace: add() expects a workspace part from a factory')
+  }
+
   addSource(sourceOrSources) {
     const sources = normalizeSources(Array.isArray(sourceOrSources) ? sourceOrSources : [sourceOrSources])
 
@@ -159,6 +202,18 @@ export class SolidWorkspace {
   setClient(client) {
     this.solid = client
     return this
+  }
+
+  async open(options = {}) {
+    if (
+      typeof options === 'string'
+      || Array.isArray(options)
+      || options?.workspacePart === 'source'
+    ) {
+      return this.load({ sources: options })
+    }
+
+    return this.load(options)
   }
 
   async load(options = {}) {
@@ -567,13 +622,15 @@ function source(kind, url, options) {
   }
 
   return Object.freeze({
+    ...options,
+    workspacePart: 'source',
     kind,
+    type: options.type ?? kind,
     id: options.id ?? String(url),
     url: String(url),
     readOnly: Boolean(options.readOnly),
     shape: options.shape ?? null,
-    options: options.options ?? {},
-    ...options
+    options: options.options ?? {}
   })
 }
 
@@ -592,12 +649,14 @@ function graphResource(options = {}) {
   }
 
   return Object.freeze({
+    ...options,
+    workspacePart: 'source',
     kind: 'resource',
+    type: options.type ?? 'graph-resource',
     readOnly: Boolean(options.readOnly),
     shape: options.shape ?? null,
     options: options.options ?? {},
     writeOptions: options.writeOptions,
-    ...options,
     id: options.id,
     url: String(options.url)
   })

@@ -4,6 +4,8 @@
 
 First draft. This note captures the design pressure found while connecting margin-notes to a Solid Pod from a local-first browser app.
 
+Update: `TURTLE_BACKED_LOCAL_FIRST_WORKSPACE.md` supersedes the parts of this note that describe persisted `oldmed-graph` JSON documents as the source format. The current direction is that local and remote resources are serialized as Turtle, while OLDMed objects remain the runtime view.
+
 The central premise is now stronger than "Solid with a local fallback":
 
 > SimplySolid should support PWA-style applications whose primary runtime keeps working without network access, and whose Solid resources participate as syncable workspace sources when they are reachable and authorized.

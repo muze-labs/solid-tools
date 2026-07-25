@@ -135,10 +135,10 @@ Goal: make PWA-style applications work from local graph resources first, then sy
 
 Work:
 
-- define generic OLDMed graph resource sources independent of Solid transport;
+- define generic Turtle-backed graph resource sources independent of Solid transport;
 - add factory methods such as `graph.resource()`, `local.memory()`, `local.indexedDB()`, and `solid.turtleResource()`;
 - add memory and IndexedDB-backed resource sources;
-- require or expose Turtle serialization for resource sources;
+- store local resource payloads as Turtle and parse them into OLDM graphs at runtime;
 - expose per-source availability status such as `ready`, `offline`, `auth-needed`, and `sync-pending`;
 - let a workspace open and render from local sources while remote sources fail independently;
 - support local-first writes that mark remote sync pending;
@@ -150,7 +150,7 @@ Exit criteria:
 - a PWA app can create and edit data offline;
 - reconnecting a Solid source syncs local changes without replacing the local dataset;
 - remote source failures are visible as source status and do not make the workspace unusable;
-- every resource source can expose an OLDMed graph document and produce Turtle for inspection/export.
+- every resource source can expose Turtle as its serialized payload and an OLDM graph/context view at runtime.
 
 ## Milestone 8 — semantic templates
 

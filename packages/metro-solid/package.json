@@ -1,0 +1,28 @@
+{
+  "name": "@muze-labs/metro-solid",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A Solid resource and container API helper for Metro clients.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./client": "./src/client.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "solid",
+    "linked-data",
+    "metro",
+    "muze"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@muze-nl/assert": "^0.6.0",
+    "@muze-nl/jaqt": "^0.10.6",
+    "@muze-nl/metro": "^0.8.0",
+    "@muze-nl/metro-oldm": "^0.4.1",
+    "@muze-nl/oldm": "^0.7.1"
+  }
+}

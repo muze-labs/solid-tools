@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { lading } from '../src/index.mjs'
+import { solidApi } from '../src/index.mjs'
 
 async function loadMetro() {
   try {
@@ -79,7 +79,8 @@ function mockSolidStoragePod({ token = 'test-token' } = {}) {
         url: req.url,
         body: {
           primary: {
-            space$storage: { id: 'https://pod.example/storage' },
+            id: 'https://pod.example/profile#me',
+            pims$storage: { id: 'https://pod.example/storage' },
             solid$oidcIssuer: { id: 'https://issuer.example/' },
             ldp$inbox: { id: 'https://pod.example/inbox/' }
           }
@@ -167,19 +168,21 @@ function mockSolidStoragePod({ token = 'test-token' } = {}) {
   return pod
 }
 
-metroTest('lading works with a real Metro client and Solid pod middleware', async () => {
+metroTest('solidApi works with a real Metro client and Solid pod middleware', async () => {
   const pod = mockSolidStoragePod()
   const oidc = mockOidcServer()
   const client = metro.client('https://pod.example/', pod, oidc)
-  const solid = lading(client)
+  const solid = solidApi(client)
 
-  await solid.resource('/storage/notes/new.txt').create('hello', { contentType: 'text/plain' })
-  await solid.container('/storage/projects').create()
-  const created = await solid.container('/storage/notes').post('hello', {
-    slug: 'a.txt',
-    contentType: 'text/plain'
+  await solid.create('/storage/notes/new.txt', 'hello', { headers: { 'Content-Type': 'text/plain' } })
+  await solid.createContainer('/storage/projects')
+  const created = await solid.postToContainer('/storage/notes', 'hello', {
+    headers: {
+      Slug: 'a.txt',
+      'Content-Type': 'text/plain'
+    }
   })
-  const contains = await solid.container('/storage/notes').contains()
+  const contains = await solid.contains('/storage/notes')
   const profile = await solid.discoverWebId('https://pod.example/profile#me')
 
   assert.equal(created.location, 'https://pod.example/storage/notes/a.txt')
@@ -200,16 +203,14 @@ metroTest('lading works with a real Metro client and Solid pod middleware', asyn
   assert.equal(containerRequest.headers.get('If-None-Match'), '*')
 })
 
-metroTest('thrower false leaves authorization responses from a real Metro middleware chain', async () => {
+metroTest('SolidAPI direct verbs use authorization middleware from a real Metro chain', async () => {
   const pod = mockSolidStoragePod()
-  const unauthenticated = lading(metro.client('https://pod.example/', pod), { thrower: false })
-  const response = await unauthenticated.resource('/storage/private.txt').get()
+  const unauthenticated = solidApi(metro.client('https://pod.example/', pod))
+  await assert.rejects(() => unauthenticated.get('/storage/private.txt'), /401/)
 
-  assert.equal(response.status, 401)
+  const authenticated = solidApi(metro.client('https://pod.example/', pod, mockOidcServer()))
+  const ok = await authenticated.get('/storage/private.txt')
 
-  const authenticated = lading(metro.client('https://pod.example/', pod, mockOidcServer()))
-  const ok = await authenticated.resource('/storage/private.txt').get()
-
-  assert.equal(ok.status, 200)
+  assert.equal(ok, 'secret')
   assert.equal(pod.requests.at(-1).headers.get('Authorization'), 'Bearer test-token')
 })

@@ -117,7 +117,7 @@ export class SimplySolid {
     this.status.error = null
 
     try {
-      const client = options.solid ?? options.lading ?? options.client
+      const client = options.solid ?? options.solidApi ?? options.client
       if (client) {
         this.solid = client
         this.workspace.setClient(client)
@@ -173,7 +173,7 @@ export class SimplySolid {
   async checkSetup() {
     if (!this.solid) {
       this.status.setup = setupStatus('unknown', this.conventions, this.registrations, {
-        error: new Error('simplysolid: setup checks require a Lading client')
+        error: new Error('simplysolid: setup checks require a Solid API client')
       })
       return this.status.setup
     }
@@ -218,7 +218,7 @@ export class SimplySolid {
 
     for (const item of setup.needed) {
       try {
-        const response = await this.solid.container(item.url).create()
+        const response = await this.solid.createContainer(item.url)
         created.push({ ...item, response })
       } catch (error) {
         repair.push({ ...item, status: 'error', error })
@@ -391,7 +391,7 @@ function normalizeConfig(config) {
     }
   }
 
-  const client = config.solid ?? config.lading ?? config.client
+  const client = config.solid ?? config.solidApi ?? config.client
 
   const explicitSources = config.sources ?? []
   const explicitResources = config.resources ?? []
@@ -402,7 +402,7 @@ function normalizeConfig(config) {
   const hasLocalFirstData = Object.values(data).some(descriptor => isLocalFirstDescriptor(null, descriptor, config))
 
   if (!client && explicitSources.length === 0 && explicitResources.length === 0 && !hasLocalFirstData) {
-    throw new TypeError('simplysolid: a Lading client, workspace, source, resource, or local-first data config is required')
+    throw new TypeError('simplysolid: a Solid API client, workspace, source, resource, or local-first data config is required')
   }
 
   for (const [name, descriptor] of Object.entries(data)) {
@@ -731,7 +731,7 @@ function setupStatus(state, conventions, registrations, options = {}) {
 
 async function checkContainer(client, url) {
   try {
-    const response = await client.container(url).head()
+    const response = await client.head(url)
     const status = response?.status ?? 200
 
     if (status === 404) {

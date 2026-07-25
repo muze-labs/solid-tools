@@ -24,7 +24,7 @@ simplySolid
 
 ```js
 const solidService = simplySolid({
-  solid: ladingClient,
+  solid: solidClient,
   storage: 'https://pod.example/storage/',
   data: {
     contacts: {
@@ -37,7 +37,7 @@ const solidService = simplySolid({
 
 Config:
 
-- `solid`, `lading`, or `client`: a Lading client. Optional for local-first configurations that can start from local replicas.
+- `solid`, `solidApi`, or `client`: a Solid API client. Optional for local-first configurations that can start from local replicas.
 - `workspace`: an existing Solid Workspace instance.
 - `storage`: storage root URL or storage record.
 - `localFirst`: enables local-first defaults for resource descriptors.
@@ -107,7 +107,7 @@ After Solid discovery or login, attach a remote replica:
 
 ```js
 await service.connect({
-  solid: ladingClient,
+  solid: solidClient,
   resources: {
     notes: {
       url: notesResourceUrl
@@ -118,7 +118,7 @@ await service.connect({
 await service.sync('notes')
 ```
 
-`connect()` does not perform WebID discovery or OIDC itself. It accepts the already-created Lading client and the remote resource URLs discovered by the application or another helper.
+`connect()` does not perform WebID discovery or OIDC itself. It accepts the already-created Solid API client and the remote resource URLs discovered by the application or another helper.
 
 `shape` is passed to Solid Workspace, which validates through oldm-shape before writes.
 
@@ -155,7 +155,7 @@ service.data.contacts
 
 `syncResources()` delegates to Solid Workspace resource sync, then refreshes collection handles. The first sync strategy is additive: it preserves known subjects and facts, but does not treat missing facts as deletions.
 
-`connect()` sets or replaces the Lading client, attaches remote replicas for named logical resources, opens them by default, and refreshes collection handles.
+`connect()` sets or replaces the Solid API client, attaches remote replicas for named logical resources, opens them by default, and refreshes collection handles.
 
 `checkSetup()` checks required containers and updates `service.status.setup`.
 
@@ -198,7 +198,7 @@ For example:
 
 ```js
 const service = simplySolid({
-  solid: ladingClient,
+  solid: solidClient,
   storage: 'https://pod.example/storage/',
   app: {
     id: 'https://apps.example/contacts/',
@@ -308,4 +308,4 @@ Common collection states:
 
 ## Boundary
 
-SimplySolid owns beginner-facing app service shape and collection handles. Solid Workspace owns source tracking and save semantics. Lading owns Solid HTTP. Metro-OIDC owns authentication. Metro-OLDM/OLDM own linked-data parsing/writing.
+SimplySolid owns beginner-facing app service shape and collection handles. Solid Workspace owns source tracking and save semantics. Metro-Solid owns Solid HTTP. Metro-OIDC owns authentication. Metro-OLDM/OLDM own linked-data parsing/writing.

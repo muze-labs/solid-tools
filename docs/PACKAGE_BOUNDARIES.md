@@ -4,7 +4,7 @@ This repository contains the Solid and linked-data runtime packages needed for S
 
 ## Outside this repository
 
-These packages stay outside `solid-tools`:
+These stable packages stay outside `solid-tools`:
 
 - `@muze-nl/metro`: generic HTTP client and middleware.
 - `@muze-nl/metro-oidc`: authentication/session middleware.
@@ -13,17 +13,23 @@ These packages stay outside `solid-tools`:
 - `@muze-labs/simplyflow`: UI/runtime app layer.
 - SimplyCode: design-time search, matching, code generation, editing, and catalog tooling.
 
-## `@muze-labs/lading`
+The exception is `@muze-labs/metro-solid`: it can start in this repository while the
+old Lading package is superseded, but its intended stable home is the Metro family as
+`@muze-nl/metro-solid` / `metro.solidApi`.
 
-Lading is the Solid-shaped Metro layer. It knows about Solid resources, containers, headers, profile discovery, storage discovery, and safe reads/writes.
+## `@muze-labs/metro-solid`
 
-Lading does **not** implement authentication, RDF parsing, OLDM object mapping, JSFS, SimplyFlow integration, app conventions, or residential programming.
+Metro-Solid is the Solid-shaped Metro API helper. It knows about Solid resources, containers, headers, profile discovery, storage discovery, and safe reads/writes.
 
-It assumes the caller passes a configured Metro client. If that Metro client uses `metro-oidc`, requests may authenticate. If it uses `metro-oldm`, responses may expose parsed OLDM data. Lading may consume parsed response data, but does not parse linked data itself.
+Metro-Solid does **not** implement authentication, RDF parsing, OLDM object mapping, JSFS, SimplyFlow integration, app conventions, local-first sync, or residential programming.
+
+It accepts a base URL or configured Metro client. If that Metro client uses `metro-oidc`, requests may authenticate. Metro-Solid adds `metro-oldm` automatically so profile and container helpers can consume parsed linked data.
+
+The initial package in this repository may use the `@muze-labs/metro-solid` name. The intended stable form is a Metro companion package that can be re-exported as `metro.solidApi`, similar to `metro.jsonApi`.
 
 ## `@muze-labs/jsfs-solid`
 
-JSFS-Solid presents Solid storage as a JSFS filesystem adapter. It is implemented on top of Lading.
+JSFS-Solid presents Solid storage as a JSFS filesystem adapter. It is implemented on top of the Solid-shaped Metro API helper.
 
 It owns file-system-shaped operations such as:
 
@@ -52,22 +58,23 @@ It does not choose UI components, load Solid resources, or generate app code.
 
 ## `@muze-labs/solid-workspace`
 
-Solid Workspace owns source-aware linked-data working sets over local and remote OLDMed graph resources. Solid resources and containers are important source types, but the workspace must also support PWA/offline sources such as IndexedDB and memory-backed resources. It owns:
+Solid Workspace owns source-aware linked-data working sets over local and remote Turtle resources loaded into one OLDM context. Solid resources and containers are important source types, but the workspace must also support PWA/offline sources such as IndexedDB and memory-backed resources. It owns:
 
 - generic graph resource source descriptors;
 - Solid resource/container source descriptors;
-- loading RDF resources through Lading/Metro/OLDM;
-- loading local OLDMed graph resources without network access;
+- loading RDF resources through `solidApi`/Metro/OLDM;
+- loading local Turtle graph resources without network access;
 - tracking which data came from which source;
 - per-source availability and sync-pending status;
 - collection views over a workspace;
 - `createIn` routing;
 - local-first writes where configured by the application;
-- additive source-to-source sync;
+- minimal single-user source-to-source sync;
+- recursive Turtle workspace manifest loading;
 - read-only source handling;
 - `save()` and `saveAll()` semantics.
 
-It does not know about SimplyFlow bindings, commands, components, or templates.
+It does not know about SimplyFlow bindings, commands, components, templates, or launcher-specific shortcut/window vocabulary.
 
 ## `@muze-labs/simplysolid`
 

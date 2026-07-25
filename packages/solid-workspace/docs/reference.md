@@ -43,7 +43,7 @@ Default export:
 solid.resource(url, options)
 solid.turtleResource(url, options)
 solid.container(url, options)
-solid.client(ladingClient)
+solid.client(solidClient)
 graph.resource(options)
 local.memory(id, options)
 local.indexedDB(name, options)
@@ -55,8 +55,8 @@ Options:
 - `id`: stable source id. Defaults to the URL.
 - `readOnly`: prevents writes to this source.
 - `shape`: optional oldm-shape used before saving.
-- `options`: read options passed to Lading.
-- `writeOptions`: write options passed to Lading.
+- `options`: read options passed to Solid API.
+- `writeOptions`: write options passed to Solid API.
 
 Container URLs are normalized to a trailing slash.
 
@@ -80,7 +80,7 @@ const ws = workspace({
 
 Options:
 
-- `solid`, `lading`, or `client`: a Lading client.
+- `solid`, `solidApi`, or `client`: a Solid API client.
 - `sources`: source descriptors.
 - `resources`: logical resource descriptors from `resource()`.
 - `collections`: named collection descriptors.
@@ -119,7 +119,7 @@ const localNotes = local.memory('local-notes', {
 })
 ```
 
-It can be used without a Lading client:
+It can be used without a Solid API client:
 
 ```js
 const ws = workspace({
@@ -175,7 +175,7 @@ When Solid becomes available later, keep the workspace and add the remote replic
 
 ```js
 const solidParts = [
-  solid.client(ladingClient),
+  solid.client(solidClient),
   resource('notes', {
     remote: solid.turtleResource(notesUrl, {
       id: 'solid-notes'
@@ -201,7 +201,7 @@ await ws.open('contacts')
 ws.add(source)
 ws.add(resource('notes', { local, remote }))
 ws.add([source, resource])
-ws.setClient(ladingClient)
+ws.setClient(solidClient)
 ws.addSource(source)
 ws.dataset()
 ws.dataset('notes')
@@ -218,7 +218,7 @@ await ws.delete(object)
 await ws.saveAll()
 ```
 
-`load()` reads configured sources. Resource sources call `solid.resource(url).get()`. Container sources call `solid.container(url).contains()` and then load each contained resource.
+`load()` reads configured sources. Resource sources read through the configured Solid API client's `client.get(url)`. Container sources call the Solid API `contains(url)` helper and then load each contained resource.
 
 `open()` is the application-facing alias for loading resources and sources. Pass a logical resource id, source id, source descriptor, array of sources, or `{ sources }` options.
 

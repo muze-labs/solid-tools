@@ -2,19 +2,19 @@
 
 This tutorial shows the small Solid Workspace flow: define sources, load OLDMed data, use a collection, and save changes.
 
-## 1. Configure Lading
+## 1. Configure Solid API
 
-Solid Workspace expects a Lading client. Authentication and linked-data parsing stay in Metro middleware.
+Solid Workspace expects a Solid API client. Authentication and linked-data parsing stay in Metro middleware.
 
 ```js
 import metro from '@muze-nl/metro'
 import oldmmw from '@muze-nl/metro-oldm'
-import { lading } from '@muze-labs/lading'
+import { solidApi } from '@muze-labs/metro-solid'
 
 const client = metro.client('https://pod.example/')
   .with(oldmmw())
 
-const solidClient = lading(client)
+const solidClient = solidApi(client)
 ```
 
 ## 2. Define a shape
@@ -61,7 +61,7 @@ for (const contact of ws.collections.contacts.list()) {
 }
 ```
 
-Container sources are listed with Lading's `contains()` helper. Each contained resource is then loaded through Lading and parsed by Metro-OLDM.
+Container sources are listed with the Solid API `contains()` helper. Each contained resource is then loaded through Solid API and parsed by Metro-OLDM.
 
 ## 5. Create and save
 
@@ -74,7 +74,7 @@ const ada = await ws.collections.contacts.create({
 await ws.collections.contacts.save(ada)
 ```
 
-`create()` applies shape defaults and validates the object. Saving a new object to a container uses Lading's container `post()`.
+`create()` applies shape defaults and validates the object. Saving a new object to a container uses the Solid API container `post()`.
 
 ## 6. Update and delete
 

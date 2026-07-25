@@ -1,6 +1,6 @@
 # JSFS-Solid
 
-JSFS-Solid is a JSFS adapter for Solid storage. It is implemented on top of [`@muze-labs/lading`](../lading), so Solid resource/container operations live in one lower-level package.
+JSFS-Solid is a JSFS adapter for Solid storage. It is implemented on top of [`@muze-labs/metro-solid`](../metro-solid), so Solid resource/container operations live in one lower-level package.
 
 Milestone status: Milestone 2 adapter review is implemented.
 
@@ -17,7 +17,7 @@ Docs:
 import metro from '@muze-nl/metro'
 import oidc from '@muze-nl/metro-oidc'
 import oldmmw from '@muze-nl/metro-oldm'
-import { lading } from '@muze-labs/lading'
+import { solidApi } from '@muze-labs/metro-solid'
 import { solidFs } from '@muze-labs/jsfs-solid'
 
 const client = metro.client('https://example.pod/storage/')
@@ -29,14 +29,14 @@ const client = metro.client('https://example.pod/storage/')
   }))
   .with(oldmmw())
 
-const solid = lading(client)
+const solid = solidApi(client)
 const fs = solidFs('https://example.pod/storage/', { client, solid })
 
 await fs.write('/notes/hello.txt', 'Hello', { type: 'text/plain' })
 const note = await fs.read('/notes/hello.txt')
 ```
 
-`jsfs-solid` no longer exports a higher-level `solidClient`. Application code composes Metro, Metro-OIDC, Lading, and JSFS-Solid directly. A later SimplySolid package can provide application-level setup and discovery conventions.
+`jsfs-solid` no longer exports a higher-level `solidClient`. Application code composes Metro, Metro-OIDC, `solidApi`, and JSFS-Solid directly. A later SimplySolid package can provide application-level setup and discovery conventions.
 
 ## Adapter
 
@@ -92,6 +92,6 @@ JSFS-Solid owns file-system-shaped operations:
 - `rmdir`
 - `remove`
 
-Lading owns the Solid HTTP/resource/container operations underneath.
+Metro-Solid owns the Solid HTTP/resource/container operations underneath.
 
 Authentication remains in `metro-oidc`. Linked-data parsing remains in `metro-oldm` and `oldm`.

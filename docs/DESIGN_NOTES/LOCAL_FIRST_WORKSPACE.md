@@ -156,7 +156,7 @@ Logical `resource()` parts are the app-facing concept. Source factories are lowe
 
 `workspace.open()` is the local-first application entry point. It should be tolerant by default: source failures update source status, while the workspace continues serving data from sources that did open. Lower-level `workspace.load()` can remain strict for tests and tools that want an exception.
 
-Solid-backed replicas can implement the same contract by reading/writing Turtle through Lading and Metro-OLDM. IndexedDB-backed replicas can store OLDMed graph documents directly and serialize to Turtle when asked.
+Solid-backed replicas can implement the same contract by reading/writing Turtle through Metro-Solid and Metro-OLDM. IndexedDB-backed replicas can store OLDMed graph documents directly and serialize to Turtle when asked.
 
 The first persistent local replica should be `local.indexedDB(name, options)`. It stores one OLDMed graph document per key in a browser IndexedDB object store, while still exposing the same `load()`, `save(document)`, and `turtle()` source contract as `local.memory()`.
 

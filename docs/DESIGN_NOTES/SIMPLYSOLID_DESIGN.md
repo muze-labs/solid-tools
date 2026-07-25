@@ -17,11 +17,11 @@ metro
 metro-oidc
   Authentication/session middleware for Metro.
 
-solid-tools / lading
+solid-tools / metro-solid
   Solid resource/container/discovery helpers over Metro.
 
 jsfs-solid
-  JSFS adapter backed by Solid resources, built on lading.
+  JSFS adapter backed by Solid resources, built on metro-solid.
 
 OLDM
   Linked-data object model, parsing, and writing.
@@ -39,11 +39,11 @@ SimplySolid
   SimplyFlow extension for Solid workspaces, app data, collections, and shape-backed resources.
 ```
 
-## Role of lading and jsfs-solid
+## Role of metro-solid and jsfs-solid
 
-`lading` is the Solid-shaped Metro layer. It knows about Solid resources, containers, headers, discovery, and safe writes. It does not expose a filesystem abstraction.
+`metro-solid` is the Solid-shaped Metro layer. It knows about Solid resources, containers, headers, discovery, and safe writes. It does not expose a filesystem abstraction.
 
-`jsfs-solid` is the JSFS adapter implemented on top of lading. It should not contain the old `solidClient` convenience layer. Applications and higher layers compose Metro, Metro-OIDC, Lading, JSFS-Solid, OLDM, and Metro-OLDM explicitly.
+`jsfs-solid` is the JSFS adapter implemented on top of metro-solid. It should not contain the old `solidClient` convenience layer. Applications and higher layers compose Metro, Metro-OIDC, Metro-Solid, JSFS-Solid, OLDM, and Metro-OLDM explicitly.
 
 ## Role of oldm-shape
 
@@ -185,11 +185,11 @@ await this.solid.data.contacts.delete(id)
 
 Responsibilities:
 
-- discover storage through lading
+- discover storage through metro-solid
 - resolve collection paths relative to storage
 - read linked data through metro-oldm/OLDM
 - validate before writing through oldm-shape
-- write resources through lading/metro-oldm
+- write resources through metro-solid/metro-oldm
 - expose collection status/errors to SimplyFlow app data
 
 ## What SimplySolid should not do
@@ -197,7 +197,7 @@ Responsibilities:
 SimplySolid should not own:
 
 - authentication implementation — use metro-oidc
-- low-level Solid HTTP semantics — use lading
+- low-level Solid HTTP semantics — use metro-solid
 - filesystem API — use jsfs/jsfs-solid
 - Turtle/RDF parsing/writing — use OLDM/metro-oldm
 - component search/matching — use SimplyCode
@@ -243,8 +243,8 @@ The first SimplySolid core should support shape-backed collections. Later milest
 ### Milestone 1 — solid-tools cleanup
 
 - remove old `solidClient` from jsfs-solid
-- keep lading as Solid resource/container layer
-- make jsfs-solid depend on lading
+- keep metro-solid as Solid resource/container layer
+- make jsfs-solid depend on metro-solid
 
 ### Milestone 2 — oldm-shape core
 

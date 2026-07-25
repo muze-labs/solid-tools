@@ -1,4 +1,4 @@
-import { lading } from '@muze-labs/lading'
+import { solidApi } from '@muze-labs/metro-solid'
 import { createSolidMetroClient } from './metro.mjs'
 import { filename, isAbsoluteUrl, joinPath, pathFromUrl, resolveSolidUrl } from './paths.mjs'
 
@@ -22,6 +22,10 @@ function many(value) {
     return []
   }
   return Array.isArray(value) ? value : [value]
+}
+
+function ensureSlash(url) {
+  return String(url).endsWith('/') ? String(url) : `${url}/`
 }
 
 function hasType(resource, type) {
@@ -51,7 +55,7 @@ export default class SolidAdapter {
     this.#rootUrl = String(actualRootUrl)
     this.#basePath = path
     this.#metro = metroClient
-    this.#solid = options.solid ?? lading(metroClient)
+    this.#solid = options.solid ?? solidApi(metroClient)
     this.#options = options
   }
 
@@ -109,7 +113,7 @@ export default class SolidAdapter {
 
   async read(path = '/') {
     const url = this.url(path)
-    const response = await this.#solid.resource(url).get()
+    const response = await this.#metro.get(url)
     const type = readContentType(response)
 
     const result = {
@@ -141,15 +145,17 @@ export default class SolidAdapter {
 
   async write(path, contents, metadata = {}) {
     const url = this.url(path)
-    const response = await this.#solid.resource(url).put(contents, {
-      contentType: metadata.type ?? metadata.contentType,
-      ifMatch: metadata.ifMatch,
-      ifNoneMatch: metadata.ifNoneMatch,
-      headers: metadata.headers
+    const headers = new Headers(metadata.headers)
+    if (metadata.type && !headers.has('Content-Type')) {
+      headers.set('Content-Type', metadata.type)
+    }
+    const response = await this.#metro.put(url, {
+      body: contents,
+      headers
     })
 
     return {
-      type: metadata.type ?? metadata.contentType,
+      type: metadata.type ?? headers.get('Content-Type'),
       name: filename(path),
       http: {
         headers: response.headers,
@@ -160,7 +166,7 @@ export default class SolidAdapter {
   }
 
   async remove(path) {
-    return this.#solid.resource(this.url(path)).delete()
+    return this.#metro.delete(this.url(path))
   }
 
   async delete(path) {
@@ -168,12 +174,12 @@ export default class SolidAdapter {
   }
 
   async exists(path) {
-    return this.#solid.resource(this.url(path)).head()
+    return this.#metro.head(this.url(path))
   }
 
   async list(path = '/') {
     const url = this.url(path)
-    const entries = await this.#solid.container(url).contains()
+    const entries = await this.#solid.contains(url)
 
     return entries.map(entry => {
       const resource = entry.resource
@@ -192,10 +198,10 @@ export default class SolidAdapter {
   }
 
   async mkdir(path = '/') {
-    return this.#solid.container(this.url(path)).create()
+    return this.#solid.createContainer(this.url(path))
   }
 
   async rmdir(path = '/') {
-    return this.#solid.container(this.url(path)).delete()
+    return this.#metro.delete(ensureSlash(this.url(path)))
   }
 }

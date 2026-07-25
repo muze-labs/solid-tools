@@ -492,7 +492,7 @@ test('load remains strict when a source cannot be opened', async () => {
 
   await assert.rejects(
     () => ws.load(),
-    /Lading client is required/
+    /Solid API client is required/
   )
   assert.equal(ws.status.state, 'error')
   assert.equal(ws.status.sources['solid-contacts'].state, 'offline')
@@ -800,48 +800,40 @@ function createSolidDouble({ resources = {}, containers = {}, contexts = {} } = 
 
   return {
     calls,
-    resource(url) {
-      return {
-        async get() {
-          calls.push(['resource.get', url])
-          return responseFor(url, resources[url], { context: contexts[url] })
-        },
-        async put(body) {
-          calls.push(['resource.put', url, body])
-          resources[url] = body
-          return responseFor(url, body)
-        },
-        async create(body) {
-          calls.push(['resource.create', url, body])
-          resources[url] = body
-          return responseFor(url, body)
-        },
-        async delete() {
-          calls.push(['resource.delete', url])
-          delete resources[url]
-          return responseFor(url, null, { status: 204 })
-        }
-      }
+    async get(url) {
+      calls.push(['resource.get', url])
+      return responseFor(url, resources[url], { context: contexts[url] })
     },
-    container(url) {
+    async put(url, options = {}) {
+      calls.push(['resource.put', url, options.body])
+      resources[url] = options.body
+      return responseFor(url, options.body)
+    },
+    async delete(url) {
+      calls.push(['resource.delete', url])
+      delete resources[url]
+      return responseFor(url, null, { status: 204 })
+    },
+    async create(url, body) {
+      calls.push(['resource.create', url, body])
+      resources[url] = body
+      return responseFor(url, body)
+    },
+    async contains(url) {
+      calls.push(['container.contains', url])
+      return (containers[url] ?? []).map(resourceUrl => ({
+        id: resourceUrl,
+        url: resourceUrl
+      }))
+    },
+    async postToContainer(url, body) {
+      calls.push(['container.post', url, body])
+      const location = `${url}${encodeURIComponent(body.id ?? String(calls.length))}.ttl`
+      resources[location] = body
       return {
-        async contains() {
-          calls.push(['container.contains', url])
-          return (containers[url] ?? []).map(resourceUrl => ({
-            id: resourceUrl,
-            url: resourceUrl
-          }))
-        },
-        async post(body) {
-          calls.push(['container.post', url, body])
-          const location = `${url}${encodeURIComponent(body.id ?? String(calls.length))}.ttl`
-          resources[location] = body
-          return {
-            response: responseFor(location, body, { status: 201 }),
-            location,
-            etag: '"created"'
-          }
-        }
+        response: responseFor(location, body, { status: 201 }),
+        location,
+        etag: '"created"'
       }
     }
   }

@@ -16,12 +16,14 @@ It supersedes the earlier idea that a workspace source should persist an `oldmed
 - `Context` and `Graph`;
 - a combined open-world context view over multiple graphs;
 - graph-level and fact-level source lookup through `context.sources(...)`;
-- graph mutation helpers such as `set`, `add`, and `delete`.
+- graph mutation helpers such as `set`, `add`, and `delete`;
+- vocabulary-agnostic graph operations only.
 
 `solid-workspace` should own local-first workspace semantics:
 
 - source and replica descriptors;
 - opening local and remote resources;
+- interpreting workspace manifests and include predicates;
 - source availability status such as `ready`, `offline`, `auth-needed`, and `sync-pending`;
 - local-first write routing;
 - additive sync policy between replicas;
@@ -61,6 +63,8 @@ There is one case where a single resource may describe a workspace: a manifest.
 
 A workspace manifest is itself Turtle. It describes which Turtle resources an app should open together. It does not serialize the combined data graph.
 
+The include term is workspace vocabulary, not OLDM vocabulary. OLDM should parse the manifest and expose its facts, but `solid-workspace` or a small workspace-manifest helper should decide that `ws:includes` means "load this linked resource into the workspace context."
+
 Example:
 
 ```turtle
@@ -79,11 +83,12 @@ Opening this manifest means:
 
 1. read the manifest Turtle;
 2. parse it with OLDM;
-3. resolve `ws:includes` resources;
-4. load each included Turtle resource into the same OLDM context;
-5. keep the included resources as separate graphs for save and sync.
+3. have the workspace layer inspect `ws:includes`;
+4. resolve those resource URLs;
+5. load each included Turtle resource into the same OLDM context;
+6. keep the included resources as separate graphs for save and sync.
 
-The manifest may later grow terms for preferred local replicas, read-only resources, labels, app profile, or sync policy, but it should remain a graph of workspace configuration, not an application-data dump.
+The manifest may later grow terms for preferred local replicas, read-only resources, labels, app profile, or sync policy, but it should remain a graph of workspace configuration, not an application-data dump. Those terms should be interpreted by the workspace layer, not by OLDM.
 
 ## Local replicas in IndexedDB
 
@@ -94,7 +99,7 @@ Preferred stored value:
 ```js
 {
   url: 'urn:muze:local:margin-notes:chapter-1',
-  contentType: 'text/turtle',
+  headers: { 'Content-Type': 'text/turtle' },
   body: turtle
 }
 ```
@@ -179,7 +184,7 @@ local.indexedDB(name, {
   id,
   key,
   url,
-  contentType: 'text/turtle',
+  headers: { 'Content-Type': 'text/turtle' },
   body,
   prefixes
 })
@@ -234,6 +239,7 @@ The desired replacement is OLDM graph/context operations plus a small workspace-
 Keep these in `solid-workspace`:
 
 - `open()` tolerant behavior;
+- workspace manifest loading and recursive include handling;
 - `load()` strict behavior;
 - `resource(id, { local, remote })`;
 - `createIn(resourceId, object)`;
@@ -267,9 +273,10 @@ should remain valid. Internally it should create a `local.indexedDB()` source wh
 
 Do not add a new canonical JSON document format.
 
-Useful OLDM additions would be narrow helpers around existing concepts:
+Do not add workspace include semantics to OLDM. An `include()` helper that knows a workspace predicate such as `ws:includes` would make OLDM interpret vocabulary-specific application meaning. That crosses the current OLDM boundary.
 
-- parse several Turtle resources into one context, for example `context.parseAll([{ url, type, body }])`;
+Useful OLDM additions should stay narrow and vocabulary-agnostic:
+
 - create a graph from OLDMed runtime objects when a caller explicitly wants to materialize objects into a graph;
 - expose semantic comparison or diff helpers for graphs/facts if sync needs them;
 - make it easy to ask for graph-specific and context-combined snapshots without losing provenance.
@@ -293,6 +300,7 @@ All persisted output should still be Turtle through `graph.write()`.
 - No deletion semantics beyond explicit local delete status in this slice.
 - No type-index, inbox, publication, or permission UI in this slice.
 - No requirement that every app use a workspace manifest.
+- No `oldm.context.include()` or other OLDM API that understands workspace vocabulary.
 
 ## Open questions
 
@@ -300,3 +308,4 @@ All persisted output should still be Turtle through `graph.write()`.
 - Should local graph URLs use `urn:` identifiers, `indexeddb:` URLs, or app-defined URLs?
 - Should `dataset()` continue returning a plain `{ subjects }` object for compatibility, or should it become an OLDM context/graph view?
 - Should sync materialization live entirely in `solid-workspace`, or should OLDM expose a small graph projection helper?
+- Should workspace manifest support live inside `solid-workspace` itself or in a small sibling package used by `solid-workspace`?

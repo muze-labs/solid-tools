@@ -1,6 +1,6 @@
 # JSFS-Solid reference
 
-JSFS-Solid presents Solid storage through a JSFS filesystem-shaped adapter. It is built on top of Lading, so Solid HTTP resource/container behavior stays in `@muze-labs/lading`.
+JSFS-Solid presents Solid storage through a JSFS filesystem-shaped adapter. It is built on top of Metro-Solid, so Solid HTTP resource/container behavior stays in `@muze-labs/metro-solid`.
 
 It does not provide app setup, login UI, WebID storage discovery, RDF parsing, or OLDM object mapping.
 
@@ -67,7 +67,7 @@ Options:
 
 - `path`: base filesystem path, default `/`.
 - `metroClient`, `metro`, or `client`: an existing Metro client.
-- `solid`: an existing Lading client.
+- `solid`: an existing Solid API client.
 - `configureMetro: true`: add JSFS-Solid's default Metro middleware stack even when a Metro client is supplied.
 - `oidc: false`: skip default Metro-OIDC middleware.
 - `oldm: false`: skip default Metro-OLDM middleware.
@@ -99,14 +99,12 @@ await adapter.exists(path)
 }
 ```
 
-`write(path, contents, metadata)` delegates to Lading resource writes. Metadata may include:
+`write(path, contents, metadata)` delegates to Solid API resource writes. Metadata may include:
 
-- `type` or `contentType`
-- `ifMatch`
-- `ifNoneMatch`
+- `type`
 - `headers`
 
-`list(path)` delegates to Lading container containment and maps entries to:
+`list(path)` delegates to Solid API container containment and maps entries to:
 
 ```js
 { filename, path, url, type, resource }

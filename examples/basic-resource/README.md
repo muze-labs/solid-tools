@@ -1,22 +1,22 @@
-# Basic Lading resource example
+# Basic Metro-Solid resource example
 
 ```js
 import metro from '@muze-nl/metro'
 import oidc from '@muze-nl/metro-oidc'
-import { lading } from '@muze-labs/lading'
+import { solidApi } from '@muze-labs/metro-solid'
 
 const client = metro.client()
   .with(oidc.oidcmw({
     issuer: 'https://solidcommunity.net',
     client_info: {
-      client_name: 'Lading example'
+      client_name: 'Metro-Solid example'
     }
   }))
 
-const solid = lading(client)
+const solid = solidApi(client)
 
 await solid.resource('https://example.pod/storage/notes/hello.txt')
-  .put('Hello Solid', { contentType: 'text/plain' })
+  .put('Hello Solid', { headers: { 'Content-Type': 'text/plain' } })
 ```
 
-Lading uses Metro's direct verb methods internally and adds Metro's `thrower()` middleware by default, so non-OK HTTP responses behave like normal Metro thrower errors.
+Metro-Solid uses the configured Metro client for resource and container calls, so response and error behavior stays with Metro middleware setup.

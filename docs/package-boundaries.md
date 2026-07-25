@@ -1,22 +1,23 @@
 # Package boundaries
 
-## Lading
+## Metro-Solid
 
-Lading is the Solid-shaped Metro layer. It knows about Solid resources, containers, headers, discovery, and safe writes.
+Metro-Solid is the Solid-shaped Metro API helper. It knows about Solid resources, containers, headers, discovery, and safe writes.
 
-Lading does **not** implement authentication, RDF parsing, OLDM objects, JSFS, or app conventions.
+Metro-Solid does **not** implement authentication, RDF parsing, OLDM objects, JSFS, or app conventions.
 
-It assumes the caller passes a configured Metro client. If that Metro client uses `metro-oidc`, requests may authenticate. If it uses `metro-oldm`, responses may expose parsed OLDM data. Lading can consume that parsed data, but does not parse linked data itself.
+It accepts a base URL or configured Metro client. If that Metro client uses `metro-oidc`, requests may authenticate. Metro-Solid adds `metro-oldm` automatically so its helpers can consume parsed linked data.
 
-Lading follows the current Metro API shape:
+Metro-Solid follows the current Metro API shape:
 
+- build the root helper with `metro.api(client, methods)`;
 - use direct verb methods such as `client.get()`, `client.post()`, `client.put()`, and `client.delete()`;
-- reuse Metro's `thrower()` middleware instead of a Lading-specific error class;
+- reuse Metro's `thrower()` middleware instead of a Metro-Solid-specific error class;
 - keep HTTP response handling close to Metro's own response/error model.
 
 ## JSFS-Solid
 
-JSFS-Solid presents Solid storage as a JSFS filesystem adapter. It is implemented on top of Lading.
+JSFS-Solid presents Solid storage as a JSFS filesystem adapter. It is implemented on top of Metro-Solid.
 
 JSFS-Solid owns file-system-shaped operations such as:
 

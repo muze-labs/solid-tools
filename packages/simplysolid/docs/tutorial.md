@@ -2,7 +2,7 @@
 
 This tutorial shows a small contacts collection exposed through `app.solid`.
 
-## 1. Configure Metro and Lading
+## 1. Configure Metro and Solid API
 
 Authentication and linked-data parsing stay in Metro middleware.
 
@@ -10,7 +10,7 @@ Authentication and linked-data parsing stay in Metro middleware.
 import metro from '@muze-nl/metro'
 import oidc from '@muze-nl/metro-oidc'
 import oldmmw from '@muze-nl/metro-oldm'
-import { lading } from '@muze-labs/lading'
+import { solidApi } from '@muze-labs/metro-solid'
 
 const client = metro.client('https://pod.example/storage/')
   .with(oidc.oidcmw({
@@ -21,7 +21,7 @@ const client = metro.client('https://pod.example/storage/')
   }))
   .with(oldmmw())
 
-const solidClient = lading(client)
+const solidClient = solidApi(client)
 ```
 
 ## 2. Define a collection shape

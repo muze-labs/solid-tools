@@ -32,57 +32,57 @@ function createSolidDouble() {
 
   return {
     calls,
-    resource(url) {
-      return {
-        async get(options) {
-          calls.push({ kind: 'resource', method: 'get', url, options })
-          return response('hello', {
-            url,
-            headers: { 'Content-Type': 'text/plain' }
-          })
-        },
-        async put(body, options) {
-          calls.push({ kind: 'resource', method: 'put', url, body, options })
-          return response('', {
-            status: 201,
-            url,
-            headers: { ETag: '"write"' }
-          })
-        },
-        async delete(options) {
-          calls.push({ kind: 'resource', method: 'delete', url, options })
-          return response('', { status: 205, url })
-        }
+    metro: metro.client('https://pod.example/storage/', async req => {
+      const method = req.method.toLowerCase()
+      calls.push({
+        kind: 'client',
+        method,
+        url: req.url,
+        body: req.data,
+        headers: Object.fromEntries(req.headers.entries())
+      })
+      if (method === 'get') {
+        return response('hello', {
+          url: req.url,
+          headers: { 'Content-Type': 'text/plain' }
+        })
       }
-    },
-    container(url) {
+      if (method === 'put') {
+        return response('', {
+          status: 201,
+          url: req.url,
+          headers: { ETag: '"write"' }
+        })
+      }
+      if (method === 'delete') {
+        return response('', { status: 205, url: req.url })
+      }
+      if (method === 'head') {
+        return response('', { status: 200, url: req.url })
+      }
+      return response('', { status: 405, url: req.url })
+    }),
+    async contains(url, options) {
       const containerUrl = ensureSlash(url)
-      return {
-        async contains(options) {
-          calls.push({ kind: 'container', method: 'contains', url: containerUrl, options })
-          return [
-            {
-              id: 'https://pod.example/storage/notes/a.txt',
-              resource: { id: 'https://pod.example/storage/notes/a.txt' }
-            },
-            {
-              id: 'https://pod.example/storage/notes/archive/',
-              resource: {
-                id: 'https://pod.example/storage/notes/archive/',
-                a: ['ldp$Container']
-              }
-            }
-          ]
+      calls.push({ kind: 'solid', method: 'contains', url: containerUrl, options })
+      return [
+        {
+          id: 'https://pod.example/storage/notes/a.txt',
+          resource: { id: 'https://pod.example/storage/notes/a.txt' }
         },
-        async create(options) {
-          calls.push({ kind: 'container', method: 'create', url: containerUrl, options })
-          return response('', { status: 201, url: containerUrl })
-        },
-        async delete(options) {
-          calls.push({ kind: 'container', method: 'delete', url: containerUrl, options })
-          return response('', { status: 205, url: containerUrl })
+        {
+          id: 'https://pod.example/storage/notes/archive/',
+          resource: {
+            id: 'https://pod.example/storage/notes/archive/',
+            a: ['ldp$Container']
+          }
         }
-      }
+      ]
+    },
+    async createContainer(url, options) {
+      const containerUrl = ensureSlash(url)
+      calls.push({ kind: 'solid', method: 'createContainer', url: containerUrl, options })
+      return response('', { status: 201, url: containerUrl })
     }
   }
 }
@@ -91,7 +91,7 @@ test('read resolves paths and returns file-shaped text content', async () => {
   const solid = createSolidDouble()
   const adapter = new SolidAdapter('https://pod.example/storage/', {
     solid,
-    metroClient: metro.client('https://pod.example/storage/')
+    metroClient: solid.metro
   })
 
   const file = await adapter.read('/notes/a.txt')
@@ -105,39 +105,41 @@ test('read resolves paths and returns file-shaped text content', async () => {
     url: 'https://pod.example/storage/notes/a.txt'
   })
   assert.deepEqual(solid.calls, [{
-    kind: 'resource',
+    kind: 'client',
     method: 'get',
     url: 'https://pod.example/storage/notes/a.txt',
-    options: undefined
+    body: undefined,
+    headers: {}
   }])
 })
 
-test('write delegates resource writes to Lading with JSFS metadata', async () => {
+test('write delegates resource writes to Metro-Solid with JSFS metadata', async () => {
   const solid = createSolidDouble()
   const adapter = new SolidAdapter('https://pod.example/storage/', {
     solid,
-    metroClient: metro.client('https://pod.example/storage/')
+    metroClient: solid.metro
   })
 
   const written = await adapter.write('/notes/a.txt', 'hello', {
     type: 'text/plain',
-    ifMatch: '"old"',
-    headers: { 'X-Test': 'yes' }
+    headers: {
+      'If-Match': '"old"',
+      'X-Test': 'yes'
+    }
   })
 
   assert.equal(written.name, 'a.txt')
   assert.equal(written.type, 'text/plain')
   assert.equal(written.http.status, 201)
   assert.deepEqual(solid.calls, [{
-    kind: 'resource',
+    kind: 'client',
     method: 'put',
     url: 'https://pod.example/storage/notes/a.txt',
     body: 'hello',
-    options: {
-      contentType: 'text/plain',
-      ifMatch: '"old"',
-      ifNoneMatch: undefined,
-      headers: { 'X-Test': 'yes' }
+    headers: {
+      'content-type': 'text/plain',
+      'if-match': '"old"',
+      'x-test': 'yes'
     }
   }])
 })
@@ -146,7 +148,7 @@ test('list maps LDP containment to JSFS entries', async () => {
   const solid = createSolidDouble()
   const adapter = new SolidAdapter('https://pod.example/storage/', {
     solid,
-    metroClient: metro.client('https://pod.example/storage/')
+    metroClient: solid.metro
   })
 
   assert.deepEqual(await adapter.list('/notes'), [
@@ -170,18 +172,18 @@ test('list maps LDP containment to JSFS entries', async () => {
   ])
 
   assert.deepEqual(solid.calls, [{
-    kind: 'container',
+    kind: 'solid',
     method: 'contains',
     url: 'https://pod.example/storage/notes/',
     options: undefined
   }])
 })
 
-test('mkdir, rmdir, and remove delegate to Lading container/resource operations', async () => {
+test('mkdir, rmdir, and remove delegate to Metro-Solid container/resource operations', async () => {
   const solid = createSolidDouble()
   const adapter = new SolidAdapter('https://pod.example/storage/', {
     solid,
-    metroClient: metro.client('https://pod.example/storage/')
+    metroClient: solid.metro
   })
 
   await adapter.mkdir('/notes/archive')
@@ -190,22 +192,24 @@ test('mkdir, rmdir, and remove delegate to Lading container/resource operations'
 
   assert.deepEqual(solid.calls, [
     {
-      kind: 'container',
-      method: 'create',
+      kind: 'solid',
+      method: 'createContainer',
       url: 'https://pod.example/storage/notes/archive/',
       options: undefined
     },
     {
-      kind: 'container',
+      kind: 'client',
       method: 'delete',
       url: 'https://pod.example/storage/notes/archive/',
-      options: undefined
+      body: undefined,
+      headers: {}
     },
     {
-      kind: 'resource',
+      kind: 'client',
       method: 'delete',
       url: 'https://pod.example/storage/notes/a.txt',
-      options: undefined
+      body: undefined,
+      headers: {}
     }
   ])
 })
@@ -214,7 +218,7 @@ test('solidFs returns a JSFS filesystem wrapper around SolidAdapter', async () =
   const solid = createSolidDouble()
   const fs = solidFs('https://pod.example/storage/', {
     solid,
-    metroClient: metro.client('https://pod.example/storage/')
+    metroClient: solid.metro
   })
 
   const file = await fs.read('/notes/a.txt')
@@ -223,7 +227,7 @@ test('solidFs returns a JSFS filesystem wrapper around SolidAdapter', async () =
   assert.equal(file.contents, 'hello')
   assert.equal(fs.path, '/')
   assert.deepEqual(solid.calls.map(call => [call.kind, call.method, call.url]), [
-    ['resource', 'get', 'https://pod.example/storage/notes/a.txt'],
-    ['resource', 'put', 'https://pod.example/storage/notes/b.txt']
+    ['client', 'get', 'https://pod.example/storage/notes/a.txt'],
+    ['client', 'put', 'https://pod.example/storage/notes/b.txt']
   ])
 })

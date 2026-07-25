@@ -4,19 +4,19 @@ Solid Tools is the Muze Labs monorepo for the small Solid and linked-data runtim
 
 This repository currently combines two kinds of work:
 
-- existing early code for `lading` and `jsfs-solid`;
-- Milestone 0 scaffolding for the remaining packages that will become the SimplySolid runtime stack.
+- early code for `metro-solid` and `jsfs-solid`;
+- scaffolding for the remaining packages that will become the SimplySolid runtime stack.
 
 Nothing in this repository is released yet, so package boundaries and APIs can still change freely while the design settles.
 
 ## Packages
 
 ```txt
-packages/lading
-  Solid-shaped resource/container layer over Metro.
+packages/metro-solid
+  Solid resource/container/profile/storage API helper for Metro clients.
 
 packages/jsfs-solid
-  JSFS adapter backed by Solid storage, implemented on top of Lading.
+  JSFS adapter backed by Solid storage, implemented on top of metro-solid.
 
 packages/oldm-shape
   Native OLDMed shape declarations, validation, and shape satisfaction checks.
@@ -43,7 +43,7 @@ packages/simplysolid-templates
 @muze-nl/oldm + @muze-nl/metro-oldm
   linked-data parsing/writing and Metro integration
 
-@muze-labs/lading
+@muze-labs/metro-solid
   Solid resource/container/profile/storage operations over a configured Metro client
 
 @muze-labs/oldm-shape

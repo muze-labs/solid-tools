@@ -3,7 +3,7 @@ import { constants } from 'node:fs'
 import { join } from 'node:path'
 
 const entries = [
-  'packages/lading',
+  'packages/metro-solid',
   'packages/jsfs-solid',
   'packages/oldm-shape',
   'packages/solid-workspace',

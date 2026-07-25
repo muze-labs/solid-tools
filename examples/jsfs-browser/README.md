@@ -5,7 +5,7 @@
   import metro from '@muze-nl/metro'
   import oidc from '@muze-nl/metro-oidc'
   import oldmmw from '@muze-nl/metro-oldm'
-  import { lading } from '@muze-labs/lading'
+  import { solidApi } from '@muze-labs/metro-solid'
   import { solidFs } from '@muze-labs/jsfs-solid'
 
   const client = metro.client('https://example.pod/storage/')
@@ -17,7 +17,7 @@
     }))
     .with(oldmmw())
 
-  const solid = lading(client)
+  const solid = solidApi(client)
   const fs = solidFs('https://example.pod/storage/', { client, solid })
 
   const entries = await fs.list('/')

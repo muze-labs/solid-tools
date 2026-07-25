@@ -2,7 +2,7 @@
   "name": "@muze-labs/jsfs-solid",
   "version": "0.1.0",
   "type": "module",
-  "description": "A JSFS adapter for Solid storage, implemented on top of Lading.",
+  "description": "A JSFS adapter for Solid storage, implemented on top of metro-solid.",
   "main": "src/index.mjs",
   "exports": {
     ".": "./src/index.mjs",
@@ -23,7 +23,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@muze-labs/lading": "0.1.0",
+    "@muze-labs/metro-solid": "0.1.0",
     "@muze-nl/jsfs": "^0.3.5",
     "@muze-nl/metro": "^0.8.0",
     "@muze-nl/metro-oauth2": "^0.8.2",

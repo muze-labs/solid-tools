@@ -156,7 +156,7 @@ If two devices edit the same scalar field offline with close timestamps, the new
 
 `solid-workspace` should own this policy because it is replica sync behavior.
 
-`oldm` should provide graph/context operations that make the implementation smaller, such as context inclusion, graph materialization, source lookup, and possibly semantic graph equality. OLDM should not decide local/remote merge policy.
+`oldm` should provide vocabulary-agnostic graph/context operations that make the implementation smaller, such as graph materialization, source lookup, graph mutation, and possibly semantic graph equality. OLDM should not decide local/remote merge policy or interpret workspace include terms.
 
 Margin-notes should only ensure that note subjects have stable IDs and updated timestamps when edited.
 

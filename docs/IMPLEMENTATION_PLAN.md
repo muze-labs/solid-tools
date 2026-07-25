@@ -1,6 +1,6 @@
 # Implementation plan
 
-This repository starts from existing early `lading` and `jsfs-solid` work and adds the package scaffolding needed for the SimplySolid runtime stack.
+This repository starts from existing early `metro-solid` and `jsfs-solid` work and adds the package scaffolding needed for the SimplySolid runtime stack.
 
 ## Milestone 0 — repository scaffold
 
@@ -10,27 +10,31 @@ Deliverables:
 
 - root npm workspace configuration;
 - package shells for all planned runtime packages;
-- existing `lading` and `jsfs-solid` code preserved;
+- existing `metro-solid` and `jsfs-solid` code preserved;
 - stale unexported `SolidClient.js` removed from `jsfs-solid` because it contradicted the package boundary;
 - examples workspace added;
 - current design documents copied into `docs/DESIGN_NOTES`;
 - package boundary and implementation-plan documents added;
 - lightweight workspace/export check added.
 
-## Milestone 1 — Lading cleanup
+## Milestone 1 — `metro.solidApi`
 
-Goal: make Solid HTTP behavior clean and reusable.
+Goal: make Solid HTTP behavior a Metro-style API helper and remove Lading as a separate architecture layer.
 
 Work:
 
-- review the current `lading` API against the SimplySolid v5 design;
+- create a `@muze-labs/metro-solid` package that exports `solidApi`;
+- port the useful Lading resource/container/profile/storage behavior into `solidApi`;
 - keep resource/container/profile/storage concerns only;
 - ensure 401/403 responses can be handled by callers when required by OIDC flows;
 - add tests for safe reads/writes, ETag handling, container creation, profile discovery, and storage discovery;
-- document Solid status/header behavior.
+- document Solid status/header behavior;
+- remove the unreleased `@muze-labs/lading` package and update workspace callers.
 
 Exit criteria:
 
+- `solidApi(client)` works like the previous `lading(client)` helper;
+- the former Lading tests pass against the new package;
 - can discover storage from a WebID/profile;
 - can read, write, patch, and delete a resource;
 - can list and create a container;
@@ -38,19 +42,20 @@ Exit criteria:
 
 ## Milestone 2 — JSFS-Solid adapter review
 
-Goal: make JSFS-Solid a thin adapter over Lading.
+Goal: make JSFS-Solid a thin adapter over the Solid-shaped Metro API helper.
 
 Work:
 
 - verify no app-level `solidClient` wrapper remains;
 - add tests for path resolution, list mapping, read, write, mkdir, rmdir, and remove;
 - decide whether this package should stay `@muze-labs/jsfs-solid` during the experiment or eventually replace an existing `@muze-nl/jsfs-solid` package;
-- document default Metro composition separately from the adapter itself.
+- document default Metro composition separately from the adapter itself;
+- migrate docs and examples from Lading to `solidApi`.
 
 Exit criteria:
 
 - no duplicated Solid HTTP logic;
-- adapter delegates resource/container operations to Lading;
+- adapter delegates resource/container operations to `solidApi`;
 - existing JSFS use cases remain possible.
 
 ## Milestone 3 — oldm-shape core
@@ -86,6 +91,8 @@ Work:
 - define resource and container source descriptors;
 - load direct RDF resources from configured sources;
 - track source URL per loaded object/fact;
+- use one OLDM context for loaded graphs;
+- load Turtle workspace manifests recursively without teaching OLDM workspace vocabulary;
 - support read-only sources;
 - implement `createIn` routing;
 - implement collection views;
@@ -150,7 +157,8 @@ Exit criteria:
 - a PWA app can create and edit data offline;
 - reconnecting a Solid source syncs local changes without replacing the local dataset;
 - remote source failures are visible as source status and do not make the workspace unusable;
-- every resource source can expose Turtle as its serialized payload and an OLDM graph/context view at runtime.
+- every resource source can expose Turtle as its serialized payload and an OLDM graph/context view at runtime;
+- minimal single-user sync uses stable IDs, timestamps, tombstones, additive merge, and narrow last-writer-wins scalar updates.
 
 ## Milestone 8 — semantic templates
 

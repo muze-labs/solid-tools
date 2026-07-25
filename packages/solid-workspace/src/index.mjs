@@ -1,4 +1,5 @@
 import oldm from '@muze-nl/oldm'
+import { from } from '@muze-nl/jaqt'
 
 export const packageName = '@muze-labs/solid-workspace'
 
@@ -14,9 +15,10 @@ export function collection(options = {}) {
 }
 
 export function resource(idOrOptions, options = {}) {
-  const config = typeof idOrOptions === 'string'
-    ? { ...options, id: idOrOptions }
-    : { ...idOrOptions }
+  let config = { ...idOrOptions }
+  if (typeof idOrOptions === 'string') {
+    config = { ...options, id: idOrOptions }
+  }
 
   if (!config.id) {
     throw new TypeError('solid-workspace: resource id is required')
@@ -115,7 +117,7 @@ export const solid = {
     return Object.freeze({
       ...options,
       workspacePart: 'client',
-      type: options.type ?? 'lading-client',
+      type: options.type ?? 'solid-api-client',
       client
     })
   }
@@ -129,17 +131,23 @@ export const graph = {
 
 export const local = {
   memory(idOrOptions, options = {}) {
-    const config = typeof idOrOptions === 'string'
-      ? { ...options, id: idOrOptions }
-      : { ...idOrOptions }
+    let config = { ...idOrOptions }
+    if (typeof idOrOptions === 'string') {
+      config = { ...options, id: idOrOptions }
+    }
+
     const id = config.id ?? config.key ?? 'local-memory'
     const url = config.url ?? `memory://${encodeURIComponent(id)}`
-    let document = graphDocumentFrom(config.document ?? {
-      format: config.format ?? 'oldmed-graph',
-      version: config.version ?? 1,
-      prefixes: config.prefixes ?? {},
-      subjects: []
-    })
+    let initialDocument = config.document
+    if (initialDocument == null) {
+      initialDocument = {
+        format: config.format ?? 'oldmed-graph',
+        version: config.version ?? 1,
+        prefixes: config.prefixes ?? {},
+        subjects: []
+      }
+    }
+    let document = graphDocumentFrom(initialDocument)
 
     return graphResource({
       ...config,
@@ -168,9 +176,11 @@ export const local = {
     })
   },
   indexedDB(nameOrOptions, options = {}) {
-    const config = typeof nameOrOptions === 'string'
-      ? { ...options, name: nameOrOptions }
-      : { ...nameOrOptions }
+    let config = { ...nameOrOptions }
+    if (typeof nameOrOptions === 'string') {
+      config = { ...options, name: nameOrOptions }
+    }
+
     const databaseName = config.name ?? config.databaseName ?? config.database
     if (!databaseName) {
       throw new TypeError('solid-workspace: IndexedDB database name is required')
@@ -255,7 +265,7 @@ export class SolidWorkspace {
       throw new TypeError('solid-workspace: workspace options must be an object')
     }
 
-    const client = options.solid ?? options.lading ?? options.client
+    const client = options.solid ?? options.solidApi ?? options.client
 
     this.solid = client
     this.sources = []
@@ -339,34 +349,38 @@ export class SolidWorkspace {
     }
 
     const existing = this.resourceById.get(part.id)
-    const current = existing
-      ? { ...existing }
-      : {
-          id: part.id,
-          type: part.type ?? 'replicated-resource',
-          local: null,
-          remote: null
-        }
+    let current = {
+      id: part.id,
+      type: part.type ?? 'replicated-resource',
+      local: null,
+      remote: null
+    }
+    if (existing) {
+      current = { ...existing }
+    }
 
-    const remoteSource = part.remote
-      ? resourceReplicaSource(part.remote, {
-          resource: current,
-          replica: 'remote'
-        })
-      : current.remote
-    const localSource = part.local
-      ? resourceReplicaSource(part.local, {
-          resource: current,
-          replica: 'local',
-          syncTo: remoteSource?.id
-        })
-      : current.local && remoteSource
-        ? resourceReplicaSource(current.local, {
-            resource: current,
-            replica: 'local',
-            syncTo: remoteSource.id
-          })
-        : current.local
+    let remoteSource = current.remote
+    if (part.remote) {
+      remoteSource = resourceReplicaSource(part.remote, {
+        resource: current,
+        replica: 'remote'
+      })
+    }
+
+    let localSource = current.local
+    if (part.local) {
+      localSource = resourceReplicaSource(part.local, {
+        resource: current,
+        replica: 'local',
+        syncTo: remoteSource?.id
+      })
+    } else if (current.local && remoteSource) {
+      localSource = resourceReplicaSource(current.local, {
+        resource: current,
+        replica: 'local',
+        syncTo: remoteSource.id
+      })
+    }
 
     if (localSource) {
       current.local = this.addSource(localSource)
@@ -556,7 +570,7 @@ export class SolidWorkspace {
     try {
       if (descriptor.kind === 'container') {
         assertSolidClient(this)
-        const entries = await this.solid.container(descriptor.url).contains(descriptor.options)
+        const entries = await this.solid.contains(descriptor.url, descriptor.options)
         this.replaceSourceRecords(descriptor, [], {
           source: descriptor,
           sourceUrl: descriptor.url,
@@ -603,7 +617,23 @@ export class SolidWorkspace {
       }
 
       assertSolidClient(this)
-      const response = await this.solid.resource(descriptor.url).get(descriptor.options)
+      let response
+      try {
+        response = await this.solid.get(descriptor.url, requestOptions(descriptor.options))
+      } catch (error) {
+        if ([404, 410].includes(statusFromError(error))) {
+          if (!descriptor.append) {
+            this.replaceSourceRecords(descriptor, [], {
+              source: descriptor,
+              sourceUrl: descriptor.url,
+              status: 'loaded'
+            })
+          }
+          this.setSourceStatus(descriptor, { state: 'ready', error: null })
+          return []
+        }
+        throw error
+      }
       const responseStatus = response?.status ?? 200
       if (responseStatus === 404 || responseStatus === 410) {
         if (!descriptor.append) {
@@ -699,15 +729,21 @@ export class SolidWorkspace {
       throw new Error(`solid-workspace: source ${target.id} is read-only`)
     }
 
-    const sourceDocument = options.document ?? this.dataset({
-      sources: options.from ?? this.sources,
-      format: options.format,
-      version: options.version,
-      prefixes: options.prefixes
-    })
-    const targetDocument = options.loadTarget === false
-      ? graphDocumentFrom(options.targetDocument)
-      : await this.loadGraphDocument(target, options)
+    let sourceDocument = options.document
+    if (sourceDocument == null) {
+      sourceDocument = this.dataset({
+        sources: options.from ?? this.sources,
+        format: options.format,
+        version: options.version,
+        prefixes: options.prefixes
+      })
+    }
+    let targetDocument
+    if (options.loadTarget === false) {
+      targetDocument = graphDocumentFrom(options.targetDocument)
+    } else {
+      targetDocument = await this.loadGraphDocument(target, options)
+    }
     const document = mergeGraphDocuments([
       targetDocument,
       sourceDocument
@@ -767,9 +803,11 @@ export class SolidWorkspace {
 
     let remoteDocument
     try {
-      remoteDocument = options.loadRemote === false
-        ? graphDocumentFrom(options.remoteDocument)
-        : await this.loadGraphDocument(remoteSource, options)
+      if (options.loadRemote === false) {
+        remoteDocument = graphDocumentFrom(options.remoteDocument)
+      } else {
+        remoteDocument = await this.loadGraphDocument(remoteSource, options)
+      }
     } catch (error) {
       this.setSourceStatus(remoteSource, {
         state: sourceFailureState(error),
@@ -906,10 +944,10 @@ export class SolidWorkspace {
 
     assertSolidClient(this)
     try {
-      const response = await this.solid.resource(descriptor.url).get({
+      const response = await this.solid.get(descriptor.url, requestOptions({
         ...descriptor.options,
         ...options.readOptions
-      })
+      }))
 
       if (response?.status === 404 || response?.status === 410) {
         return graphDocumentFrom(null)
@@ -918,9 +956,9 @@ export class SolidWorkspace {
         throw responseError({ source: descriptor, response })
       }
 
-      return graphDocumentFrom(response?.data)
+      return graphDocumentFrom(dataFromResult(response))
     } catch (error) {
-      const status = error.cause?.status ?? error.response?.status
+      const status = statusFromError(error)
       if (status === 404 || status === 410) {
         return graphDocumentFrom(null)
       }
@@ -951,7 +989,7 @@ export class SolidWorkspace {
   }
 
   sourceOf(object, predicate, value) {
-    return this.sourcesOf(object, predicate, value)[0] ?? null
+    return oldm.one(this.sourcesOf(object, predicate, value), 'first') ?? null
   }
 
   sourcesOf(object, predicate, value) {
@@ -1047,16 +1085,19 @@ export class SolidWorkspace {
 
       assertSolidClient(this)
       if (record.deleted) {
-        const response = await this.solid.resource(record.sourceUrl).delete(options)
+        const response = await this.solid.delete(record.sourceUrl, requestOptions(options))
         this.setSourceStatus(record.source, { state: 'ready', error: null })
         return updateRecordStatus(record, { ok: true, status: 'deleted', response })
       }
 
       if (record.created || !record.sourceUrl) {
         const source = record.source
-        const response = source.kind === 'container'
-          ? await this.solid.container(source.url).post(record.object, writeOptions(source, options))
-          : await this.solid.resource(source.url).create(record.object, writeOptions(source, options))
+        let response
+        if (source.kind === 'container') {
+          response = await this.solid.postToContainer(source.url, record.object, writeOptions(source, options))
+        } else {
+          response = await this.solid.create(source.url, record.object, writeOptions(source, options))
+        }
 
         record.sourceUrl = response.location ?? source.url
         record.created = false
@@ -1064,7 +1105,7 @@ export class SolidWorkspace {
         return updateRecordStatus(record, { ok: true, status: 'created', response })
       }
 
-      const response = await this.solid.resource(record.sourceUrl).put(record.object, writeOptions(record.source, options))
+      const response = await this.solid.put(record.sourceUrl, bodyOptions(record.object, writeOptions(record.source, options)))
       this.setSourceStatus(record.source, { state: 'ready', error: null })
       return updateRecordStatus(record, { ok: true, status: 'saved', response })
     } catch (error) {
@@ -1118,15 +1159,18 @@ export class SolidWorkspace {
     for (const target of targets) {
       const source = resolveSource(this, target)
       const current = this.status.sources[source.id] ?? sourceStatus(source, { state: 'idle' })
+      let state = 'sync-pending'
+      if (current.state === 'opening' || current.state === 'syncing') {
+        state = current.state
+      }
+
       this.setSourceStatus(source, {
         ...current,
-        state: current.state === 'opening' || current.state === 'syncing'
-          ? current.state
-          : 'sync-pending',
+        state,
         syncPending: true,
         pendingFrom: unique([
-          ...values(current.pendingFrom),
-          ...values(from)
+          ...oldm.many(current.pendingFrom),
+          ...oldm.many(from)
         ])
       })
     }
@@ -1137,9 +1181,14 @@ export class SolidWorkspace {
   clearSyncPending(sourceOrId) {
     const source = resolveSource(this, sourceOrId)
     const current = this.status.sources[source.id] ?? sourceStatus(source, { state: 'idle' })
+    let state = current.state
+    if (current.state === 'sync-pending') {
+      state = 'ready'
+    }
+
     this.setSourceStatus(source, {
       ...current,
-      state: current.state === 'sync-pending' ? 'ready' : current.state,
+      state,
       syncPending: false,
       pendingFrom: []
     })
@@ -1147,9 +1196,10 @@ export class SolidWorkspace {
   }
 
   setSourceStatus(sourceOrId, status = {}) {
-    const source = typeof sourceOrId === 'string'
-      ? this.sourceById.get(sourceOrId) ?? { id: sourceOrId }
-      : sourceOrId?.parent ?? sourceOrId
+    let source = sourceOrId?.parent ?? sourceOrId
+    if (typeof sourceOrId === 'string') {
+      source = this.sourceById.get(sourceOrId) ?? { id: sourceOrId }
+    }
 
     if (!source?.id) {
       return null
@@ -1165,9 +1215,10 @@ export class SolidWorkspace {
   }
 
   setResourceStatus(resourceOrId, status = {}) {
-    const logicalResource = typeof resourceOrId === 'string'
-      ? this.resourceById.get(resourceOrId) ?? { id: resourceOrId }
-      : resourceOrId
+    let logicalResource = resourceOrId
+    if (typeof resourceOrId === 'string') {
+      logicalResource = this.resourceById.get(resourceOrId) ?? { id: resourceOrId }
+    }
 
     if (!logicalResource?.id) {
       return null
@@ -1195,10 +1246,10 @@ export class WorkspaceCollection {
   }
 
   list() {
-    return this.workspace.records
-      .filter(record => !record.deleted)
-      .filter(record => collectionIncludesRecord(this.workspace, this.descriptor, record))
-      .map(record => record.object)
+    return Array.from(from(this.workspace.records)
+      .where(record => !record.deleted)
+      .where(record => collectionIncludesRecord(this.workspace, this.descriptor, record))
+      .select(record => record.object))
   }
 
   get(id) {
@@ -1206,9 +1257,10 @@ export class WorkspaceCollection {
   }
 
   async create(object = {}, options = {}) {
-    const data = this.descriptor.shape?.applyDefaults
-      ? this.descriptor.shape.applyDefaults(object)
-      : { ...object }
+    let data = { ...object }
+    if (this.descriptor.shape?.applyDefaults) {
+      data = this.descriptor.shape.applyDefaults(object)
+    }
 
     const validation = this.descriptor.shape?.validate?.(data)
     if (validation && !validation.ok) {
@@ -1237,9 +1289,8 @@ export class WorkspaceCollection {
   }
 
   saveAll() {
-    return this.workspace.saveAll(this.workspace.records.filter(record => (
-      collectionIncludesRecord(this.workspace, this.descriptor, record)
-    )))
+    return this.workspace.saveAll(Array.from(from(this.workspace.records)
+      .where(record => collectionIncludesRecord(this.workspace, this.descriptor, record))))
   }
 }
 
@@ -1444,10 +1495,12 @@ function recordsForSources(currentWorkspace, sources) {
   const descriptors = new Set(normalizeLoadSources(currentWorkspace, sources))
   const ids = new Set([...descriptors].map(source => source.id))
 
-  return currentWorkspace.records.filter(record => !record.deleted).filter(record => {
-    const source = record.source?.parent ?? record.source
-    return source && (descriptors.has(source) || ids.has(source.id))
-  })
+  return Array.from(from(currentWorkspace.records)
+    .where(record => !record.deleted)
+    .where(record => {
+      const source = record.source?.parent ?? record.source
+      return source && (descriptors.has(source) || ids.has(source.id))
+    }))
 }
 
 function recordBelongsToSources(record, sources) {
@@ -1474,7 +1527,7 @@ function collectionIncludesRecord(currentWorkspace, descriptor, record) {
   }
 
   if (descriptor.shape?.class) {
-    const classes = values(record.object.rdf$type)
+    const classes = oldm.many(record.object.rdf$type)
     if (!classes.includes(descriptor.shape.class)) {
       return false
     }
@@ -1484,29 +1537,11 @@ function collectionIncludesRecord(currentWorkspace, descriptor, record) {
 }
 
 function subjectsFromResponse(response) {
-  const data = response?.data
+  return oldm.subjects(dataFromResult(response))
+}
 
-  if (!data) {
-    return []
-  }
-
-  if (Array.isArray(data)) {
-    return data.filter(isObject)
-  }
-
-  if (Array.isArray(data.data)) {
-    return data.data.filter(isObject)
-  }
-
-  if (data.subjects && typeof data.subjects === 'object') {
-    return Object.values(data.subjects).filter(isObject)
-  }
-
-  if (isObject(data.primary)) {
-    return [data.primary]
-  }
-
-  return isObject(data) ? [data] : []
+function dataFromResult(result) {
+  return result?.data ?? result
 }
 
 function graphDocumentFrom(value) {
@@ -1519,48 +1554,30 @@ function graphDocumentFrom(value) {
     }
   }
 
+  const subjects = oldm.subjects(value)
+
   if (Array.isArray(value)) {
     return {
       format: null,
       version: null,
       prefixes: {},
-      subjects: value.filter(isObject)
+      subjects
     }
   }
 
-  if (Array.isArray(value.subjects)) {
+  if (
+    Object.hasOwn(value, 'format')
+    || Object.hasOwn(value, 'version')
+    || Object.hasOwn(value, 'prefixes')
+    || Object.hasOwn(value, 'subjects')
+    || Object.hasOwn(value, 'data')
+    || Object.hasOwn(value, 'primary')
+  ) {
     return {
       format: value.format ?? null,
       version: value.version ?? null,
       prefixes: value.prefixes ?? {},
-      subjects: value.subjects.filter(isObject)
-    }
-  }
-
-  if (value.subjects && typeof value.subjects === 'object') {
-    return {
-      format: value.format ?? null,
-      version: value.version ?? null,
-      prefixes: value.prefixes ?? {},
-      subjects: Object.values(value.subjects).filter(isObject)
-    }
-  }
-
-  if (Array.isArray(value.data)) {
-    return {
-      format: value.format ?? null,
-      version: value.version ?? null,
-      prefixes: value.prefixes ?? {},
-      subjects: value.data.filter(isObject)
-    }
-  }
-
-  if (isObject(value.primary)) {
-    return {
-      format: value.format ?? null,
-      version: value.version ?? null,
-      prefixes: value.prefixes ?? {},
-      subjects: [value.primary]
+      subjects
     }
   }
 
@@ -1568,7 +1585,7 @@ function graphDocumentFrom(value) {
     format: null,
     version: null,
     prefixes: {},
-    subjects: isObject(value) ? [value] : []
+    subjects
   }
 }
 
@@ -1717,7 +1734,7 @@ async function saveGraphDocument(workspace, source, document, options = {}) {
   }
 
   assertSolidClient(workspace)
-  return workspace.solid.resource(source.url).put(document, writeOptions(source, options))
+  return workspace.solid.put(source.url, bodyOptions(document, writeOptions(source, options)))
 }
 
 function openIndexedDatabase({ indexedDB, name, version, storeName }) {
@@ -1764,12 +1781,12 @@ function objectStoreExists(objectStoreNames, storeName) {
     return objectStoreNames.contains(storeName)
   }
 
-  return values(objectStoreNames).includes(storeName)
+  return oldm.many(objectStoreNames).includes(storeName)
 }
 
 function assertSolidClient(workspace) {
   if (!workspace.solid) {
-    throw new TypeError('solid-workspace: a Lading client is required for Solid sources')
+    throw new TypeError('solid-workspace: a Solid API client is required for Solid sources')
   }
 }
 
@@ -1788,7 +1805,8 @@ function cloneValue(value) {
 }
 
 function oldmSourcesOf(record, object, predicate, value) {
-  const context = record.response?.data?.context ?? record.response?.data?.primary?.context
+  const data = dataFromResult(record.response)
+  const context = data?.context ?? data?.primary?.context
 
   if (!context || typeof context.sources !== 'function') {
     return []
@@ -1799,16 +1817,43 @@ function oldmSourcesOf(record, object, predicate, value) {
     .filter(Boolean)
 }
 
+function statusFromError(error) {
+  return error?.cause?.status ?? error?.response?.status ?? error?.status
+}
+
 function validateRecord(record) {
   const validation = record.source?.shape?.validate?.(record.object)
   return validation ?? { ok: true, issues: [] }
 }
 
 function writeOptions(source, options) {
+  const headers = new Headers(source?.writeOptions?.headers)
+  for (const [key, value] of new Headers(options?.headers)) {
+    headers.set(key, value)
+  }
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'text/turtle')
+  }
+
   return {
-    contentType: 'text/turtle',
     ...source?.writeOptions,
-    ...options
+    ...options,
+    headers
+  }
+}
+
+function requestOptions(options = {}) {
+  return {
+    ...options,
+    headers: new Headers(options.headers)
+  }
+}
+
+function bodyOptions(body, options = {}) {
+  return {
+    ...options,
+    body,
+    headers: new Headers(options.headers)
   }
 }
 
@@ -1839,7 +1884,7 @@ function sourceStatus(source, status = {}) {
     state: status.state ?? 'idle',
     error: status.error ?? null,
     syncPending: Boolean(status.syncPending),
-    pendingFrom: values(status.pendingFrom)
+    pendingFrom: oldm.many(status.pendingFrom)
   }
 }
 
@@ -1907,21 +1952,17 @@ function responseError({ source, response }) {
 }
 
 function errorStatus(error) {
-  return error?.response?.status
-    ?? error?.cause?.status
-    ?? error?.status
+  if (error?.response?.status !== undefined) {
+    return error.response.status
+  }
+  if (error?.cause?.status !== undefined) {
+    return error.cause.status
+  }
+  return error?.status
 }
 
 function ensureSlash(url) {
   return String(url).endsWith('/') ? String(url) : `${url}/`
-}
-
-function values(value) {
-  if (value == null) {
-    return []
-  }
-
-  return Array.isArray(value) ? value : [value]
 }
 
 function unique(items) {

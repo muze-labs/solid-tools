@@ -67,7 +67,7 @@ Container sources are listed with the Solid API `contains()` helper. Each contai
 
 ```js
 const ada = await ws.collections.contacts.create({
-  rdf$type: 'schema$Person',
+  a: 'schema$Person',
   schema$name: 'Ada Lovelace'
 })
 

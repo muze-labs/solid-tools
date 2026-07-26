@@ -41,7 +41,6 @@ Default export:
 
 ```js
 solid.resource(url, options)
-solid.turtleResource(url, options)
 solid.container(url, options)
 solid.client(solidClient)
 graph.resource(options)
@@ -177,7 +176,7 @@ When Solid becomes available later, keep the workspace and add the remote replic
 const solidParts = [
   solid.client(solidClient),
   resource('notes', {
-    remote: solid.turtleResource(notesUrl, {
+    remote: solid.resource(notesUrl, {
       id: 'solid-notes'
     })
   })
@@ -224,14 +223,14 @@ await ws.saveAll()
 
 `open()` is tolerant by default for local-first applications: if one source fails, the failure is recorded in `workspace.status.sources[sourceId]` and other sources remain available. Use `load()` or `open({ throwOnError: true })` when a caller wants strict failure behavior.
 
-`add()` accepts only explicit workspace parts returned by factories such as `resource()`, `local.memory()`, `solid.client()`, `solid.turtleResource()`, or `graph.resource()`. It also accepts arrays of those parts, returns the same workspace for fluent composition, and throws for plain objects.
+`add()` accepts only explicit workspace parts returned by factories such as `resource()`, `local.memory()`, `solid.client()`, `solid.resource()`, or `graph.resource()`. It also accepts arrays of those parts, returns the same workspace for fluent composition, and throws for plain objects.
 
 Logical `resource()` parts group replicas of the same conceptual document:
 
 ```js
 resource('notes', {
   local: local.memory('notes:local'),
-  remote: solid.turtleResource(notesUrl, { id: 'notes:solid' })
+  remote: solid.resource(notesUrl, { id: 'notes:solid' })
 })
 ```
 
@@ -350,7 +349,7 @@ await contacts.saveAll()
 A collection can filter by:
 
 - `sources`: source ids.
-- `shape.class`: matching `rdf$type` values.
+- `shape.class`: matching `a` values.
 
 `create(object)` applies shape defaults and validates the object. By default it tracks the object without saving immediately. Use `contacts.save(object)` or `contacts.saveAll()` to write.
 

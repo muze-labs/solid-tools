@@ -28,7 +28,7 @@ test('solid-workspace scaffold exports source descriptors', () => {
 test('loads direct resources and tracks object source urls', async () => {
   const contact = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Ada'
   }
   const client = createSolidDouble({
@@ -62,12 +62,12 @@ test('loads container resources into collection views', async () => {
   })
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Ada'
   }
   const org = {
     id: 'https://pod.example/contacts/acme.ttl#org',
-    rdf$type: 'schema$Organization',
+    a: 'schema$Organization',
     schema$name: 'Acme'
   }
   const client = createSolidDouble({
@@ -127,7 +127,7 @@ test('creates new collection objects through createIn routing', async () => {
 
   const ada = await ws.collections.contacts.create({
     id: 'urn:uuid:ada',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Ada'
   })
   const status = await ws.collections.contacts.save(ada)
@@ -140,10 +140,39 @@ test('creates new collection objects through createIn routing', async () => {
   ])
 })
 
+test('collection create requires an explicit createIn target', async () => {
+  const ContactShape = shape({
+    class: 'schema$Person',
+    fields: {
+      schema$name: field.string({ min: 1, max: 1 })
+    }
+  })
+  const ws = workspace({
+    sources: [
+      local.memory('contacts')
+    ],
+    collections: {
+      contacts: collection({
+        shape: ContactShape,
+        sources: ['contacts']
+      })
+    }
+  })
+
+  await assert.rejects(
+    () => ws.collections.contacts.create({
+      id: 'urn:uuid:ada',
+      a: 'schema$Person',
+      schema$name: 'Ada'
+    }),
+    /collection contacts needs createIn/
+  )
+})
+
 test('updates and deletes existing tracked resources', async () => {
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Ada'
   }
   const client = createSolidDouble({
@@ -176,7 +205,7 @@ test('updates and deletes existing tracked resources', async () => {
 test('delegates fact-level source lookup to OLDM context when available', async () => {
   const contact = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Ada'
   }
   const context = {
@@ -215,7 +244,7 @@ test('mergeGraphDocuments preserves open-world subjects and facts', () => {
       subjects: [
         {
           id: 'urn:contact:ada',
-          rdf$type: 'schema$Person',
+          a: 'schema$Person',
           schema$name: 'Ada'
         }
       ]
@@ -229,7 +258,7 @@ test('mergeGraphDocuments preserves open-world subjects and facts', () => {
         },
         {
           id: 'urn:contact:grace',
-          rdf$type: 'schema$Person',
+          a: 'schema$Person',
           schema$name: 'Grace'
         }
       ]
@@ -244,13 +273,13 @@ test('mergeGraphDocuments preserves open-world subjects and facts', () => {
   assert.deepEqual(result.subjects, [
     {
       id: 'urn:contact:ada',
-      rdf$type: 'schema$Person',
+      a: 'schema$Person',
       schema$name: 'Ada',
       schema$email: 'ada@example.test'
     },
     {
       id: 'urn:contact:grace',
-      rdf$type: 'schema$Person',
+      a: 'schema$Person',
       schema$name: 'Grace'
     }
   ])
@@ -259,7 +288,7 @@ test('mergeGraphDocuments preserves open-world subjects and facts', () => {
 test('workspace dataset exposes multiple resources as one open-world graph', async () => {
   const adaLocal = {
     id: 'urn:contact:ada',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Ada'
   }
   const adaRemote = {
@@ -285,7 +314,7 @@ test('workspace dataset exposes multiple resources as one open-world graph', asy
   assert.deepEqual(ws.dataset().subjects, [
     {
       id: 'urn:contact:ada',
-      rdf$type: 'schema$Person',
+      a: 'schema$Person',
       schema$name: 'Ada',
       schema$email: 'ada@example.test'
     }
@@ -295,12 +324,12 @@ test('workspace dataset exposes multiple resources as one open-world graph', asy
 test('workspace sync additively projects selected sources into a target resource', async () => {
   const local = {
     id: 'urn:contact:local',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Local'
   }
   const remote = {
     id: 'urn:contact:remote',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Remote'
   }
   const client = createSolidDouble({
@@ -337,8 +366,11 @@ test('workspace sync additively projects selected sources into a target resource
 test('local memory resources open without a Solid client and export Turtle', async () => {
   const ada = {
     id: 'urn:contact:ada',
-    rdf$type: 'schema$Person',
-    schema$name: 'Ada'
+    a: 'schema$Person',
+    schema$name: 'Ada',
+    schema$about: {
+      id: 'https://example.test/topic'
+    }
   }
   const localNotes = local.memory('local-contacts', {
     prefixes: { schema: 'https://schema.org/' },
@@ -351,16 +383,21 @@ test('local memory resources open without a Solid client and export Turtle', asy
   await ws.load()
   const turtle = await localNotes.turtle()
 
-  assert.deepEqual(ws.dataset().subjects, [ada])
+  assertGraphEqual(ws.dataset().subjects, [ada])
+  assert.equal(ws.dataset().subjects[0].schema$name instanceof String, true)
+  assert.equal(ws.dataset().subjects[0].schema$name.type, 'xsd$string')
+  assert.deepEqual(ws.dataset().subjects[0].schema$about, {
+    id: 'https://example.test/topic'
+  })
   assert.match(turtle, /schema:Person/)
   assert.match(turtle, /Ada/)
 })
 
-test('local indexedDB resources persist OLDMed documents across workspaces', async () => {
+test('local indexedDB resources persist Turtle across workspaces', async () => {
   const indexedDB = createIndexedDBDouble()
   const ada = {
     id: 'urn:contact:ada',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Ada'
   }
 
@@ -376,6 +413,16 @@ test('local indexedDB resources persist OLDMed documents across workspaces', asy
 
   await first.open('contacts')
   await first.createIn('contacts', ada)
+  const stored = indexedDB.databases
+    .get('solid-workspace-test')
+    .stores
+    .get('resources')
+    .values
+    .get('contacts')
+
+  assert.equal(typeof stored.turtle, 'string')
+  assert.equal(stored.document, undefined)
+  assert.match(stored.turtle, /schema:Person/)
 
   const second = workspace()
     .add(resource('contacts', {
@@ -390,7 +437,9 @@ test('local indexedDB resources persist OLDMed documents across workspaces', asy
   await second.open('contacts')
   const turtle = await second.resources[0].local.turtle()
 
-  assert.deepEqual(second.dataset('contacts').subjects, [ada])
+  assertGraphEqual(second.dataset('contacts').subjects, [ada])
+  assert.equal(second.dataset('contacts').subjects[0].schema$name instanceof String, true)
+  assert.equal(second.dataset('contacts').subjects[0].schema$name.type, 'xsd$string')
   assert.match(turtle, /schema:Person/)
   assert.match(turtle, /Ada/)
 })
@@ -398,12 +447,12 @@ test('local indexedDB resources persist OLDMed documents across workspaces', asy
 test('workspace can add a Solid source later and sync local data into it', async () => {
   const localContact = {
     id: 'urn:contact:local',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Local'
   }
   const remoteContact = {
     id: 'urn:contact:remote',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Remote'
   }
   const localSource = local.memory('local-contacts', {
@@ -420,12 +469,12 @@ test('workspace can add a Solid source later and sync local data into it', async
   await ws.open()
   ws
     .add(solid.client(client))
-    .add(solid.turtleResource('https://pod.example/contacts.ttl', {
+    .add(solid.resource('https://pod.example/contacts.ttl', {
       id: 'solid-contacts'
     }))
   await ws.open('solid-contacts')
 
-  assert.deepEqual(ws.dataset().subjects, [localContact, remoteContact])
+  assertGraphEqual(ws.dataset().subjects, [localContact, remoteContact])
 
   const status = await ws.sync({
     from: ['local-contacts'],
@@ -433,7 +482,7 @@ test('workspace can add a Solid source later and sync local data into it', async
   })
 
   assert.equal(status.status, 'synced')
-  assert.deepEqual(status.document.subjects, [remoteContact, localContact])
+  assertGraphEqual(status.document.subjects, [remoteContact, localContact])
 })
 
 test('workspace add accepts explicit factory-created parts and arrays of parts', () => {
@@ -462,7 +511,7 @@ test('workspace add accepts explicit factory-created parts and arrays of parts',
 test('open keeps local data when a remote source is unavailable', async () => {
   const localContact = {
     id: 'urn:contact:local',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Local'
   }
   const ws = workspace()
@@ -470,14 +519,14 @@ test('open keeps local data when a remote source is unavailable', async () => {
       local.memory('local-contacts', {
         document: graphDocument([localContact])
       }),
-      solid.turtleResource('https://pod.example/offline.ttl', {
+      solid.resource('https://pod.example/offline.ttl', {
         id: 'solid-contacts'
       })
     ])
 
   await ws.open()
 
-  assert.deepEqual(ws.dataset().subjects, [localContact])
+  assertGraphEqual(ws.dataset().subjects, [localContact])
   assert.equal(ws.status.state, 'ready')
   assert.equal(ws.status.sources['local-contacts'].state, 'ready')
   assert.equal(ws.status.sources['solid-contacts'].state, 'offline')
@@ -486,7 +535,7 @@ test('open keeps local data when a remote source is unavailable', async () => {
 
 test('load remains strict when a source cannot be opened', async () => {
   const ws = workspace()
-    .add(solid.turtleResource('https://pod.example/offline.ttl', {
+    .add(solid.resource('https://pod.example/offline.ttl', {
       id: 'solid-contacts'
     }))
 
@@ -501,7 +550,7 @@ test('load remains strict when a source cannot be opened', async () => {
 test('local saves can mark a remote source sync-pending until sync succeeds', async () => {
   const localContact = {
     id: 'urn:contact:local',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Local'
   }
   const client = createSolidDouble({
@@ -512,7 +561,7 @@ test('local saves can mark a remote source sync-pending until sync succeeds', as
   const ws = workspace()
     .add([
       local.memory('local-contacts'),
-      solid.turtleResource('https://pod.example/contacts.ttl', {
+      solid.resource('https://pod.example/contacts.ttl', {
         id: 'solid-contacts'
       })
     ])
@@ -541,13 +590,13 @@ test('local saves can mark a remote source sync-pending until sync succeeds', as
 test('logical resources store reachable remote data in the local working copy', async () => {
   const remoteContact = {
     id: 'urn:contact:remote',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Remote'
   }
   const localReplica = local.memory('contacts:local', {
     document: graphDocument([])
   })
-  const remoteReplica = solid.turtleResource('https://pod.example/contacts.ttl', {
+  const remoteReplica = solid.resource('https://pod.example/contacts.ttl', {
     id: 'contacts:solid'
   })
   const client = createSolidDouble({
@@ -566,7 +615,7 @@ test('logical resources store reachable remote data in the local working copy', 
 
   await online.open()
 
-  assert.deepEqual(online.dataset('contacts').subjects, [remoteContact])
+  assertGraphEqual(online.dataset('contacts').subjects, [remoteContact])
 
   const offline = workspace()
     .add(resource('contacts', {
@@ -576,7 +625,7 @@ test('logical resources store reachable remote data in the local working copy', 
 
   await offline.open('contacts')
 
-  assert.deepEqual(offline.dataset('contacts').subjects, [remoteContact])
+  assertGraphEqual(offline.dataset('contacts').subjects, [remoteContact])
   assert.equal(offline.status.sources['contacts:local'].state, 'ready')
   assert.equal(offline.status.sources['contacts:solid'].state, 'offline')
   assert.equal(offline.status.resources.contacts.state, 'ready')
@@ -585,23 +634,23 @@ test('logical resources store reachable remote data in the local working copy', 
 test('logical resources save offline locally and sync additively later', async () => {
   const originalRemote = {
     id: 'urn:contact:remote',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Remote'
   }
   const offlineLocal = {
     id: 'urn:contact:local',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Local'
   }
   const laterRemote = {
     id: 'urn:contact:later-remote',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Later Remote'
   }
   const localReplica = local.memory('contacts:local', {
     document: graphDocument([originalRemote])
   })
-  const remoteReplica = solid.turtleResource('https://pod.example/contacts.ttl', {
+  const remoteReplica = solid.resource('https://pod.example/contacts.ttl', {
     id: 'contacts:solid'
   })
   const ws = workspace()
@@ -613,7 +662,7 @@ test('logical resources save offline locally and sync additively later', async (
   await ws.open('contacts')
   await ws.createIn('contacts', offlineLocal)
 
-  assert.deepEqual(ws.dataset('contacts').subjects, [originalRemote, offlineLocal])
+  assertGraphEqual(ws.dataset('contacts').subjects, [originalRemote, offlineLocal])
   assert.equal(ws.status.sources['contacts:solid'].state, 'sync-pending')
   assert.equal(ws.status.sources['contacts:solid'].syncPending, true)
 
@@ -628,8 +677,8 @@ test('logical resources save offline locally and sync additively later', async (
 
   assert.equal(status.ok, true)
   assert.equal(status.status, 'synced')
-  assert.deepEqual(status.document.subjects, [originalRemote, laterRemote, offlineLocal])
-  assert.deepEqual(ws.dataset('contacts').subjects, [originalRemote, laterRemote, offlineLocal])
+  assertGraphEqual(status.document.subjects, [originalRemote, laterRemote, offlineLocal])
+  assertGraphEqual(ws.dataset('contacts').subjects, [originalRemote, laterRemote, offlineLocal])
   assert.equal(ws.status.sources['contacts:solid'].state, 'ready')
   assert.equal(ws.status.sources['contacts:solid'].syncPending, false)
   assert.deepEqual(client.calls, [
@@ -647,7 +696,7 @@ test('read-only sources report read_only for otherwise valid saves', async () =>
   })
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    rdf$type: 'schema$Person',
+    a: 'schema$Person',
     schema$name: 'Ada'
   }
   const client = createSolidDouble({
@@ -683,7 +732,7 @@ test('read-only and validation failures are reported in saveAll statuses', async
   })
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    rdf$type: 'schema$Person'
+    a: 'schema$Person'
   }
   const client = createSolidDouble({
     resources: {
@@ -717,6 +766,7 @@ function createIndexedDBDouble() {
   const databases = new Map()
 
   return {
+    databases,
     open(name, version) {
       const request = {}
       queueMicrotask(() => {
@@ -793,6 +843,28 @@ function indexedDBSuccess(value) {
 
 function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value))
+}
+
+function assertGraphEqual(actual, expected) {
+  assert.deepEqual(graphValue(actual), expected)
+}
+
+function graphValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(graphValue)
+  }
+
+  if (value instanceof String || value instanceof Number || value instanceof Boolean) {
+    return value.valueOf()
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, graphValue(item)])
+    )
+  }
+
+  return value
 }
 
 function createSolidDouble({ resources = {}, containers = {}, contexts = {} } = {}) {

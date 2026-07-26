@@ -15,10 +15,12 @@
     "../../muze-nl/metro/packages/metro-hashparams",
     "../../muze-nl/metro/packages/metro-formdata",
     "../../muze-nl/metro/packages/metro",
+    "../../muze-nl/assert",
     "../../muze-nl/jaqt",
     "../../muze-nl/oldm/packages/oldm-core",
     "../../muze-nl/oldm/packages/oldm-n3",
-    "../../muze-nl/oldm/packages/oldm"
+    "../../muze-nl/oldm/packages/oldm",
+    "../../muze-nl/oldm/packages/oldm-shape"
   ],
   "scripts": {
     "build": "node scripts/check-workspace.mjs",

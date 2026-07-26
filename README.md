@@ -18,9 +18,6 @@ packages/metro-solid
 packages/jsfs-solid
   JSFS adapter backed by Solid storage, implemented on top of metro-solid.
 
-packages/oldm-shape
-  Native OLDMed shape declarations, validation, and shape satisfaction checks.
-
 packages/solid-workspace
   Source-aware OLDMed working set over Solid resources and containers.
 
@@ -43,11 +40,11 @@ packages/simplysolid-templates
 @muze-nl/oldm + @muze-nl/metro-oldm
   linked-data parsing/writing and Metro integration
 
+@muze-labs/oldm-shape
+  linked-data shape contracts, maintained in the oldm monorepo
+
 @muze-labs/metro-solid
   Solid resource/container/profile/storage operations over a configured Metro client
-
-@muze-labs/oldm-shape
-  linked-data shape contracts
 
 @muze-labs/solid-workspace
   source-aware working set over Solid resources

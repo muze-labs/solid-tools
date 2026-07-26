@@ -18,7 +18,8 @@
   "license": "MIT",
   "dependencies": {
     "@muze-labs/metro-solid": "0.1.0",
-    "@muze-labs/oldm-shape": "0.1.0",
+    "@muze-labs/oldm-shape": "0.4.0",
+    "@muze-nl/assert": "^0.6.0",
     "@muze-nl/jaqt": "^0.10.6",
     "@muze-nl/oldm": "^0.7.1"
   }

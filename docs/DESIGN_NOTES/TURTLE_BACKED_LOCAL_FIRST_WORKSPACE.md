@@ -137,7 +137,7 @@ resource('notes', {
     url: 'urn:muze:local:margin-notes:notes',
     prefixes: annotationPrefixes
   }),
-  remote: solid.turtleResource(notesUrl, {
+  remote: solid.resource(notesUrl, {
     id: 'notes:solid'
   })
 })

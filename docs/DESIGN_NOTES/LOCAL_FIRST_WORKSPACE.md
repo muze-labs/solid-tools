@@ -43,7 +43,7 @@ The central in-memory representation is the OLDMed object graph:
   subjects: [
     {
       id: 'urn:example:thing',
-      rdf$type: 'schema$Thing',
+      a: 'schema$Thing',
       schema$name: 'Example'
     }
   ]
@@ -124,7 +124,7 @@ await notes.open()
 const solidParts = [
   solid.client(ladingClient),
   resource('notes', {
-    remote: solid.turtleResource(connection.resourceUrl, {
+    remote: solid.resource(connection.resourceUrl, {
       id: 'notes:solid',
       prefixes: annotationPrefixes
     })
@@ -144,7 +144,7 @@ local.memory(id, options)
 local.indexedDB(name, options)
 local.localStorage(name, options)
 solid.client(ladingClient)
-solid.turtleResource(url, options)
+solid.resource(url, options)
 solid.turtleContainer(url, options)
 resource(id, { local, remote })
 graph.resource(options)
@@ -156,9 +156,9 @@ Logical `resource()` parts are the app-facing concept. Source factories are lowe
 
 `workspace.open()` is the local-first application entry point. It should be tolerant by default: source failures update source status, while the workspace continues serving data from sources that did open. Lower-level `workspace.load()` can remain strict for tests and tools that want an exception.
 
-Solid-backed replicas can implement the same contract by reading/writing Turtle through Metro-Solid and Metro-OLDM. IndexedDB-backed replicas can store OLDMed graph documents directly and serialize to Turtle when asked.
+Solid-backed replicas can implement the same contract by reading/writing Turtle through Metro-Solid and Metro-OLDM. IndexedDB-backed replicas should also store Turtle, parsing it into graph documents only at the source boundary.
 
-The first persistent local replica should be `local.indexedDB(name, options)`. It stores one OLDMed graph document per key in a browser IndexedDB object store, while still exposing the same `load()`, `save(document)`, and `turtle()` source contract as `local.memory()`.
+The first persistent local replica should be `local.indexedDB(name, options)`. It stores one Turtle string per key in a browser IndexedDB object store, while still exposing the same `load()`, `save(document)`, and `turtle()` source contract as `local.memory()`.
 
 The workspace should not care whether the source is backed by:
 
@@ -179,7 +179,7 @@ resource('notes', {
   local: local.indexedDB('workspace-cache', {
     key: 'notes'
   }),
-  remote: solid.turtleResource(notesUrl, {
+  remote: solid.resource(notesUrl, {
     id: 'notes:solid'
   })
 })
@@ -254,7 +254,7 @@ Conceptual flow:
 ```js
 const note = await workspace.createIn('notes', {
   id: 'urn:note:chapter-01:margin-12',
-  rdf$type: 'schema$Comment',
+  a: 'schema$Comment',
   schema$text: 'Useful spell.'
 })
 

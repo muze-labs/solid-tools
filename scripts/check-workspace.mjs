@@ -5,7 +5,6 @@ import { join } from 'node:path'
 const entries = [
   'packages/metro-solid',
   'packages/jsfs-solid',
-  'packages/oldm-shape',
   'packages/solid-workspace',
   'packages/simplysolid',
   'packages/simplysolid-templates',

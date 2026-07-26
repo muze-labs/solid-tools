@@ -92,7 +92,7 @@ const contactsApp = app({
   commands: {
     async addContact() {
       await this.solid.data.contacts.create({
-        rdf$type: 'schema$Person',
+        a: 'schema$Person',
         schema$name: 'New contact'
       })
       this.data.contacts = this.solid.data.contacts.items

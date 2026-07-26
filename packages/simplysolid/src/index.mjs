@@ -555,7 +555,7 @@ function remoteSourceForResource(name, descriptor = {}, config = {}, resourceId 
     return null
   }
 
-  return solid.turtleResource(url, {
+  return solid.resource(url, {
     id: remoteConfig.id ?? descriptor.remoteSource ?? `${resourceId}:solid`,
     readOnly: Boolean(remoteConfig.readOnly ?? descriptor.readOnly),
     shape: remoteConfig.shape ?? descriptor.shape ?? null,
@@ -591,7 +591,7 @@ function remoteResourcePart(name, descriptor = {}, service) {
   }
 
   return workspaceResource(resourceId, {
-    remote: solid.turtleResource(url, {
+    remote: solid.resource(url, {
       id: config.id ?? config.source ?? `${resourceId}:solid`,
       readOnly: Boolean(config.readOnly),
       shape: config.shape ?? null,

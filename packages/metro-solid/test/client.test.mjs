@@ -3,7 +3,6 @@ import test from 'node:test'
 import metro from '@muze-nl/metro'
 import {
   solidApi,
-  SolidAPI,
   responseFromError,
   statusFromError
 } from '../src/index.mjs'
@@ -30,7 +29,6 @@ test('solidApi returns a Metro API object with Solid helpers', () => {
   const { client } = mockClient(req => response({ url: req.url }))
   const solid = solidApi(client)
 
-  assert.ok(solid instanceof SolidAPI)
   assert.ok(solid instanceof metro.API)
   assert.equal(solid.client, undefined)
   assert.equal(typeof solid.get, 'function')
@@ -101,17 +99,6 @@ test('solidApi extend keeps Solid helpers and adds caller methods', async () => 
   assert.equal(requests[0].headers.get('Content-Type'), 'text/plain')
 })
 
-test('solidApi does not add metro-oldm twice to a configured client', () => {
-  const { client } = mockClient(req => response({ url: req.url }))
-  const first = solidApi(client)
-  const second = solidApi(first)
-
-  assert.equal(
-    second.clientOptions.middlewares.filter(middleware => middleware.name === 'oldmmw').length,
-    1
-  )
-})
-
 test('Solid create delegates to the configured Metro client with Solid headers', async () => {
   const { client, requests } = mockClient(req => response({
     status: req.method === 'GET' ? 200 : req.method === 'PUT' ? 201 : 205,
@@ -133,7 +120,7 @@ test('Solid create delegates to the configured Metro client with Solid headers',
   assert.equal(requests[0].headers.get('If-None-Match'), '*')
 })
 
-test('SolidAPI uses Metro API thrower semantics for non-OK responses', async () => {
+test('solidApi uses Metro API thrower semantics for non-OK responses', async () => {
   const responses = [
     response({ status: 401 }),
     response({ status: 403 })

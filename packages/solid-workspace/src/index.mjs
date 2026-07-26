@@ -617,9 +617,28 @@ export class SolidWorkspace {
       }
 
       assertSolidClient(this)
-      let response
       try {
-        response = await this.solid.get(descriptor.url, requestOptions(descriptor.options))
+        const response = await this.solid.get(descriptor.url, requestOptions(descriptor.options))
+        const objects = subjectsFromResponse(response)
+
+        if (descriptor.append) {
+          this.trackObjects(objects, {
+            response,
+            source: descriptor,
+            sourceUrl: descriptor.url,
+            status: 'loaded'
+          })
+        } else {
+          this.replaceSourceRecords(descriptor, objects, {
+            response,
+            source: descriptor,
+            sourceUrl: descriptor.url,
+            status: 'loaded'
+          })
+        }
+        this.setSourceStatus(descriptor, { state: 'ready', error: null })
+
+        return objects
       } catch (error) {
         if ([404, 410].includes(statusFromError(error))) {
           if (!descriptor.append) {
@@ -634,42 +653,6 @@ export class SolidWorkspace {
         }
         throw error
       }
-      const responseStatus = response?.status ?? 200
-      if (responseStatus === 404 || responseStatus === 410) {
-        if (!descriptor.append) {
-          this.replaceSourceRecords(descriptor, [], {
-            source: descriptor,
-            sourceUrl: descriptor.url,
-            status: 'loaded'
-          })
-        }
-        this.setSourceStatus(descriptor, { state: 'ready', error: null })
-        return []
-      }
-      if (responseStatus >= 400) {
-        throw responseError({ source: descriptor, response })
-      }
-
-      const objects = subjectsFromResponse(response)
-
-      if (descriptor.append) {
-        this.trackObjects(objects, {
-          response,
-          source: descriptor,
-          sourceUrl: descriptor.url,
-          status: 'loaded'
-        })
-      } else {
-        this.replaceSourceRecords(descriptor, objects, {
-          response,
-          source: descriptor,
-          sourceUrl: descriptor.url,
-          status: 'loaded'
-        })
-      }
-      this.setSourceStatus(descriptor, { state: 'ready', error: null })
-
-      return objects
     } catch (error) {
       this.setSourceStatus(descriptor, {
         state: sourceFailureState(error),
@@ -949,14 +932,7 @@ export class SolidWorkspace {
         ...options.readOptions
       }))
 
-      if (response?.status === 404 || response?.status === 410) {
-        return graphDocumentFrom(null)
-      }
-      if ((response?.status ?? 200) >= 400) {
-        throw responseError({ source: descriptor, response })
-      }
-
-      return graphDocumentFrom(dataFromResult(response))
+      return graphDocumentFrom(response)
     } catch (error) {
       const status = statusFromError(error)
       if (status === 404 || status === 410) {
@@ -1537,11 +1513,7 @@ function collectionIncludesRecord(currentWorkspace, descriptor, record) {
 }
 
 function subjectsFromResponse(response) {
-  return oldm.subjects(dataFromResult(response))
-}
-
-function dataFromResult(result) {
-  return result?.data ?? result
+  return oldm.subjects(response)
 }
 
 function graphDocumentFrom(value) {
@@ -1805,7 +1777,7 @@ function cloneValue(value) {
 }
 
 function oldmSourcesOf(record, object, predicate, value) {
-  const data = dataFromResult(record.response)
+  const data = record.response
   const context = data?.context ?? data?.primary?.context
 
   if (!context || typeof context.sources !== 'function') {
@@ -1818,7 +1790,7 @@ function oldmSourcesOf(record, object, predicate, value) {
 }
 
 function statusFromError(error) {
-  return error?.cause?.status ?? error?.response?.status ?? error?.status
+  return error?.cause?.status
 }
 
 function validateRecord(record) {
@@ -1860,7 +1832,7 @@ function bodyOptions(body, options = {}) {
 function updateRecordStatus(record, status) {
   record.status = status.status
   record.error = status.error ?? null
-  record.response = status.response?.response ?? status.response ?? record.response
+  record.response = status.response ?? record.response
   return statusFor(record, status)
 }
 
@@ -1944,21 +1916,8 @@ function sourceFailureState(error) {
   return 'error'
 }
 
-function responseError({ source, response }) {
-  const error = new Error(`solid-workspace: source ${source.id} returned HTTP ${response?.status}`)
-  error.response = response
-  error.source = source
-  return error
-}
-
 function errorStatus(error) {
-  if (error?.response?.status !== undefined) {
-    return error.response.status
-  }
-  if (error?.cause?.status !== undefined) {
-    return error.cause.status
-  }
-  return error?.status
+  return error?.cause?.status
 }
 
 function ensureSlash(url) {

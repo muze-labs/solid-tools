@@ -1,5 +1,5 @@
 export function responseFromError(error) {
-  return error?.cause ?? error?.response ?? null
+  return error?.cause ?? null
 }
 
 export function statusFromError(error) {

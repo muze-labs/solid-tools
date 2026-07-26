@@ -8,7 +8,7 @@ It does not authenticate, map OLDM objects, expose a filesystem API, or define a
 
 ```js
 import metro from '@muze-nl/metro'
-import { SolidAPI, solidApi } from '@muze-labs/metro-solid'
+import { solidApi } from '@muze-labs/metro-solid'
 
 const solid = solidApi('https://pod.example/', {
   async profile(webId) {
@@ -19,11 +19,13 @@ const solid = solidApi('https://pod.example/', {
 const authenticated = solidApi(metro.client('https://pod.example/').with(authMiddleware))
 ```
 
-`SolidAPI` extends `metro.API`. `solidApi(base, methods)` is the factory function and returns a `SolidAPI` instance. `base` may be a URL string, a URL object, Metro client options, or an existing Metro client.
+`solidApi(base, methods)` is the factory function and returns a `metro.API` instance with Solid methods installed. `base` may be a URL string, a URL object, Metro client options, or an existing Metro client.
+
+For applications, `solidApi()` is the preferred entry point because it installs the Solid middleware stack. Libraries and custom factories that need different middleware can compose a Metro client themselves and bind methods with `new metro.API(configuredClient, methods)`.
 
 `methods` is optional. Like `metro.jsonApi()`, functions in `methods` are bound to the API object, so use normal function syntax when you need `this.get()`, `this.discoverWebId()`, or another API method.
 
-Metro-Solid adds `metro-oldm` automatically. If the provided client already has an `oldmmw` middleware, it is reused rather than added twice.
+Metro-Solid adds `metro-oldm` automatically.
 
 ## Solid API methods
 
@@ -37,7 +39,7 @@ await solid.discoverStorage(webId)
 await solid.discoverWebId(webId)
 ```
 
-The returned object also has Metro API methods such as `get()`, `post()`, `put()`, `patch()`, `delete()`, `head()`, and `extend()`. Those keep Metro's normal API semantics.
+The returned object also has Metro API methods such as `get()`, `post()`, `put()`, `patch()`, `delete()`, `head()`, and `extend()`. Solid API configures Metro's API data extraction so empty successful responses return `{}`. The original response is kept as non-enumerable metadata for Solid helpers that need headers, which requires object-shaped response data.
 
 General linked-data reads return the parsed OLDM result. That result may be a graph or a collection of subjects and does not need to have a primary subject.
 
@@ -81,13 +83,13 @@ Container URLs are normalized to a trailing slash.
 
 `createContainer()` sends an LDP BasicContainer `Link` header and uses `If-None-Match: *` by default.
 
-`postToContainer(body, options)` creates a contained resource and returns:
+`postToContainer(body, options)` creates a contained resource and returns selected response metadata:
 
 ```js
 { response, location, etag }
 ```
 
-`contains()` reads `response.data.primary.ldp$contains` and returns:
+`contains()` reads the parsed result's `primary.ldp$contains` and returns:
 
 ```js
 [{ id, url, resource, response }]

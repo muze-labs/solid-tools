@@ -3,10 +3,7 @@ import { createSolidMetroClient } from './metro.mjs'
 import { filename, isAbsoluteUrl, joinPath, pathFromUrl, resolveSolidUrl } from './paths.mjs'
 
 function readContentType(response) {
-  if (response?.headers?.get) {
-    return response.headers.get('Content-Type') ?? response.headers.get('content-type') ?? 'application/octet-stream'
-  }
-  return response?.headers?.['Content-Type'] ?? response?.headers?.['content-type'] ?? 'application/octet-stream'
+  return response.headers.get('Content-Type') ?? 'application/octet-stream'
 }
 
 function isTextLike(type) {

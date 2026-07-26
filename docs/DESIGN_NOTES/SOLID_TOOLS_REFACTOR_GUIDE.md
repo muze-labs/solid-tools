@@ -39,7 +39,7 @@ spirit as `metro.jsonApi`.
 The package should export:
 
 ```js
-import { SolidAPI, solidApi } from '@muze-labs/metro-solid'
+import { solidApi } from '@muze-labs/metro-solid'
 
 const solid = solidApi('https://pod.example/', {
   async profile(webId) {
@@ -92,8 +92,7 @@ Exit criteria for step 1:
 
 - all current Solid HTTP tests pass against `solidApi`;
 - `@muze-labs/lading` is no longer part of the workspace;
-- `SolidAPI` extends `metro.API`;
-- `solidApi(base, methods)` accepts a URL or Metro client and can be used by JSFS-Solid, Solid Workspace, and SimplySolid;
+- `solidApi(base, methods)` returns a Metro API object and can be used by JSFS-Solid, Solid Workspace, and SimplySolid;
 - no application or graph semantics are added to the new package.
 
 ## Step 2: migrate callers from Lading to `solidApi`

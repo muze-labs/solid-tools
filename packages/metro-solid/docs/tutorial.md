@@ -4,7 +4,7 @@ This tutorial shows the small Solid API workflow: create a Solid API, discover s
 
 ## 1. Create a Solid API
 
-`solidApi(base, methods)` follows the same shape as `metro.jsonApi(base, methods)`. Pass a base URL string and optional application methods. Metro-Solid adds `metro-oldm` automatically for linked-data parsing and writing.
+`solidApi(base, methods)` follows the same shape as `metro.jsonApi(base, methods)`. Pass a base URL string and optional application methods. Metro-Solid adds `metro-oldm` automatically for linked-data parsing and writing. For applications, this factory is the preferred entry point.
 
 ```js
 import { solidApi } from '@muze-labs/metro-solid'

@@ -4,7 +4,9 @@ Solid API is a Metro API helper for Solid resources and containers.
 
 Milestone status: Milestone 1 core is implemented.
 
-It handles Solid resource and container operations, header helpers, safe write options, linked-data parsing through `metro-oldm`, and minimal Solid discovery. `solidApi(base, methods)` returns a `SolidAPI` object, where `base` can be a URL string or an existing Metro client.
+It handles Solid resource and container operations, header helpers, safe write options, linked-data parsing through `metro-oldm`, and minimal Solid discovery. `solidApi(base, methods)` returns a Metro API object, where `base` can be a URL string or an existing Metro client.
+
+For applications, `solidApi()` is the preferred entry point. Libraries that need to extend Solid API behavior can compose their own Metro client and call `new metro.API()` inside their own factory method.
 
 It does **not** handle authentication, file-system APIs, OLDM object modelling, or application conventions.
 
@@ -46,18 +48,18 @@ console.log(created.location)
 
 Solid API follows the current Metro style:
 
-- `SolidAPI` extends `metro.API`;
 - `solidApi()` is the factory function, like `metro.jsonApi()`;
+- it returns a `metro.API` object;
 - it accepts the same base URL plus methods style as `metro.jsonApi()`;
-- it adds `metro-oldm` automatically, unless the provided client already has it;
-- generic HTTP methods remain Metro API/client behavior;
+- it adds `metro-oldm` automatically;
+- generic HTTP methods return Solid API data objects for successful responses;
 - its Solid-specific helpers call the API object's own Metro verb methods;
 - it does not define its own HTTP error type.
 
 General linked-data reads return the parsed OLDM result. That result may be a graph or a collection of subjects and does not need to have a primary subject. Profile discovery is stricter: a WebID identifies one subject and must be a fully qualified URL, so `discoverProfile(webId)` returns that subject directly or throws.
 Add authentication middleware to the base Metro client when requests should authenticate.
 
-Creation helpers keep the normal Metro/fetch-shaped response. `postToContainer()` additionally exposes Solid creation headers:
+Successful Solid API calls return parsed linked-data objects. Empty successful responses become `{}`. The original response is attached as non-enumerable metadata for Solid helpers that need headers, so response data must be object-shaped when that metadata is present. `postToContainer()` exposes Solid creation headers directly:
 
 ```js
 const created = await solid.postToContainer(url, body, { headers: { Slug: 'note.ttl' } })

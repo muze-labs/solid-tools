@@ -1,5 +1,4 @@
 export {
-  solidApi,
-  SolidAPI
+  solidApi
 } from './client.mjs'
 export * from './errors.mjs'

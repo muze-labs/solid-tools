@@ -8,6 +8,13 @@
   "workspaces": [
     "packages/*",
     "examples/*",
+    "../../muze-nl/metro/packages/metro-core",
+    "../../muze-nl/metro/packages/metro-api",
+    "../../muze-nl/metro/packages/metro-middleware",
+    "../../muze-nl/metro/packages/metro-trace",
+    "../../muze-nl/metro/packages/metro-hashparams",
+    "../../muze-nl/metro/packages/metro-formdata",
+    "../../muze-nl/metro/packages/metro",
     "../../muze-nl/jaqt",
     "../../muze-nl/oldm/packages/oldm-core",
     "../../muze-nl/oldm/packages/oldm-n3",

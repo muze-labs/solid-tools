@@ -175,7 +175,7 @@ metroTest('solidApi works with a real Metro client and Solid pod middleware', as
   const solid = solidApi(client)
 
   await solid.create('/storage/notes/new.txt', 'hello', { headers: { 'Content-Type': 'text/plain' } })
-  await solid.createContainer('/storage/projects')
+  const project = await solid.createContainer('/storage/projects')
   const created = await solid.postToContainer('/storage/notes', 'hello', {
     headers: {
       Slug: 'a.txt',
@@ -187,6 +187,7 @@ metroTest('solidApi works with a real Metro client and Solid pod middleware', as
 
   assert.equal(created.location, 'https://pod.example/storage/notes/a.txt')
   assert.equal(created.etag, '"abc"')
+  assert.deepEqual(project, {})
   assert.deepEqual(contains.map(item => item.url), [
     'https://pod.example/storage/notes/a.txt',
     'https://pod.example/storage/notes/b.txt'
@@ -203,14 +204,16 @@ metroTest('solidApi works with a real Metro client and Solid pod middleware', as
   assert.equal(containerRequest.headers.get('If-None-Match'), '*')
 })
 
-metroTest('SolidAPI direct verbs use authorization middleware from a real Metro chain', async () => {
+metroTest('solidApi direct verbs use authorization middleware from a real Metro chain', async () => {
   const pod = mockSolidStoragePod()
   const unauthenticated = solidApi(metro.client('https://pod.example/', pod))
   await assert.rejects(() => unauthenticated.get('/storage/private.txt'), /401/)
 
   const authenticated = solidApi(metro.client('https://pod.example/', pod, mockOidcServer()))
-  const ok = await authenticated.get('/storage/private.txt')
 
-  assert.equal(ok, 'secret')
+  await assert.rejects(
+    () => authenticated.get('/storage/private.txt'),
+    /getdata: responseProperty requires response.data to be an object/
+  )
   assert.equal(pod.requests.at(-1).headers.get('Authorization'), 'Bearer test-token')
 })

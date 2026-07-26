@@ -802,7 +802,12 @@ function createSolidDouble({ resources = {}, containers = {}, contexts = {} } = 
     calls,
     async get(url) {
       calls.push(['resource.get', url])
-      return responseFor(url, resources[url], { context: contexts[url] })
+      if (!resources[url]) {
+        throw new Error('404: Not Found', {
+          cause: responseFor(url, null, { status: 404, statusText: 'Not Found' })
+        })
+      }
+      return dataFor(url, resources[url], { context: contexts[url] })
     },
     async put(url, options = {}) {
       calls.push(['resource.put', url, options.body])
@@ -847,23 +852,24 @@ function graphDocument(subjects) {
 }
 
 function responseFor(url, object, options = {}) {
+  return {
+    status: options.status ?? 200,
+    statusText: options.statusText ?? 'OK',
+    url,
+    data: object ? dataFor(url, object, options) : null
+  }
+}
+
+function dataFor(url, object, options = {}) {
   if (object?.subjects) {
-    return {
-      status: options.status ?? 200,
-      url,
-      data: object
-    }
+    return object
   }
 
   return {
-    status: options.status ?? 200,
-    url,
-    data: object ? {
-      primary: object,
-      subjects: {
-        [object.id ?? url]: object
-      },
-      context: options.context ?? null
-    } : null
+    primary: object,
+    subjects: {
+      [object.id ?? url]: object
+    },
+    context: options.context ?? null
   }
 }

@@ -20,9 +20,11 @@ function ids(value) {
 }
 
 export function solidApi(base, methods) {
+  const linkedData = oldmmw()
+
   return new metro.API(metro.client(
     base,
-    oldmmw(),
+    linkedData,
     metro.mw.thrower(),
     metro.mw.getdata({
       alwaysData: true,
@@ -117,7 +119,7 @@ export function solidApi(base, methods) {
 
     async discoverStorage(webId, options = {}) {
       const profile = await this.discoverProfile(webId, options)
-      const storageUrls = [...new Set(from(ids(profile.pims$storage))
+      const storageUrls = [...new Set(from(ids(profile.pim$storage))
         .select(ensureSlash)
         .toArray())]
 
@@ -132,7 +134,7 @@ export function solidApi(base, methods) {
 
     async discoverWebId(webId, options = {}) {
       const profile = await this.discoverProfile(webId, options)
-      const storage = [...new Set(from(ids(profile.pims$storage))
+      const storage = [...new Set(from(ids(profile.pim$storage))
         .select(ensureSlash)
         .toArray())]
 
@@ -145,6 +147,7 @@ export function solidApi(base, methods) {
       }
     },
 
-    ...methods
+    ...methods,
+    oldm: linkedData.context
   })
 }

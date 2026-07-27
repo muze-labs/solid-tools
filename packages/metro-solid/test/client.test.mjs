@@ -37,6 +37,7 @@ test('solidApi returns a Metro API object with Solid helpers', () => {
   assert.equal(typeof solid.createContainer, 'function')
   assert.equal(typeof solid.postToContainer, 'function')
   assert.equal(typeof solid.contains, 'function')
+  assert.equal(typeof solid.oldm.get, 'function')
   assert.equal(solid.resource, undefined)
   assert.equal(solid.container, undefined)
 })
@@ -68,6 +69,7 @@ test('solidApi accepts a base URL string and caller-defined methods', async () =
     const profile = await solid.me()
 
     assert.equal(requested[0].url, 'https://pod.example/profile/card#me')
+    assert.equal(solid.oldm.graph(requested[0].url).primary, profile.profile)
     assert.deepEqual(profile.storage, ['https://pod.example/storage/'])
     assert.equal(profile.issuer, 'https://issuer.example/')
   } finally {
@@ -95,6 +97,7 @@ test('solidApi extend keeps Solid helpers and adds caller methods', async () => 
   await solid.saveText('/notes/a.txt', 'hello')
 
   assert.equal(typeof solid.contains, 'function')
+  assert.equal(typeof solid.oldm.get, 'function')
   assert.equal(requests[0].url, 'https://pod.example/notes/a.txt')
   assert.equal(requests[0].headers.get('Content-Type'), 'text/plain')
 })

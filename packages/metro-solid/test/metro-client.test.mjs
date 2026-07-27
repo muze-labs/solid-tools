@@ -80,7 +80,7 @@ function mockSolidStoragePod({ token = 'test-token' } = {}) {
         body: {
           primary: {
             id: 'https://pod.example/profile#me',
-            pims$storage: { id: 'https://pod.example/storage' },
+            pim$storage: { id: 'https://pod.example/storage' },
             solid$oidcIssuer: { id: 'https://issuer.example/' },
             ldp$inbox: { id: 'https://pod.example/inbox/' }
           }

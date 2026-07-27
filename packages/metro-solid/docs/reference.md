@@ -51,7 +51,7 @@ General linked-data reads return the parsed OLDM result. That result may be a gr
 [{ id, url, profile }]
 ```
 
-Storage discovery expects the `pims` prefix from the default `metro-oldm` context, so parsed profile data should expose `pims$storage`.
+Storage discovery expects the `pim` prefix from the default OLDM context, so parsed profile data should expose `pim$storage`.
 
 `discoverWebId(webId)` returns:
 

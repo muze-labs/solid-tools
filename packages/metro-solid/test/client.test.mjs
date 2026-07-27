@@ -199,7 +199,7 @@ test('container contains returns ldp:contains entries from parsed response data'
 test('GET of a fragment linked-data resource keeps the parsed graph', async () => {
   const profile = {
     id: 'https://pod.example/profile#me',
-    pims$storage: { id: 'https://pod.example/storage/' }
+    pim$storage: { id: 'https://pod.example/storage/' }
   }
   const { client } = mockClient(req => response({
     url: req.url,
@@ -214,7 +214,7 @@ test('GET of a fragment linked-data resource keeps the parsed graph', async () =
 test('discoverProfile returns the requested WebID subject directly', async () => {
   const profile = {
     id: 'https://pod.example/profile#me',
-    pims$storage: { id: 'https://pod.example/storage/' }
+    pim$storage: { id: 'https://pod.example/storage/' }
   }
   const { client } = mockClient(req => response({
     url: req.url,
@@ -227,7 +227,7 @@ test('discoverProfile returns the requested WebID subject directly', async () =>
 test('discoverWebId consumes Metro-OLDM parsed profile data without parsing RDF itself', async () => {
   const profile = {
     id: 'https://pod.example/profile#me',
-    pims$storage: [{ id: 'https://pod.example/storage/' }],
+    pim$storage: [{ id: 'https://pod.example/storage/' }],
     solid$oidcIssuer: { id: 'https://issuer.example/' },
     ldp$inbox: { id: 'https://pod.example/inbox/' }
   }
@@ -259,7 +259,7 @@ test('discoverProfile rejects WebID responses without the requested subject', as
 test('discoverStorage returns storage roots from WebID profile data', async () => {
   const profile = {
     id: 'https://pod.example/profile#me',
-    pims$storage: [
+    pim$storage: [
       { id: 'https://pod.example/storage' },
       { id: 'https://pod.example/archive/' }
     ]

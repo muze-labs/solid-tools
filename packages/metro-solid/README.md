@@ -85,7 +85,7 @@ info.inbox   // LDP inbox URL, if present
 
 Use the parsed profile subject directly when you need profile-specific predicates that are not exposed by `discoverWebId()`.
 
-Storage discovery expects the `pims` prefix used by the default `metro-oldm` context, so profile data should expose `pims$storage`.
+Storage discovery expects the `pim` prefix used by the default OLDM context, so profile data should expose `pim$storage`.
 
 Solid API does not parse Turtle itself; it delegates that to `metro-oldm`.
 

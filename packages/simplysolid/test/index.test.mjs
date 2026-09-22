@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { field, shape } from '@muze-labs/oldm-shape'
+import { field, Optional, shape } from '@muze-labs/oldm-shape'
 import { solid } from '@muze-labs/solid-workspace'
 import { packageName, simplySolid } from '../src/index.mjs'
 
@@ -180,7 +180,7 @@ test('collection create, update, and delete delegate through solid-workspace', a
   })
   const deleted = await service.data.contacts.delete(updated)
 
-  assert.equal(ada.schema$email.length, 0)
+  assert.equal(Object.hasOwn(ada, 'schema$email'), false)
   assert.equal(updated.schema$name, 'Ada Lovelace')
   assert.equal(deleted.status, 'deleted')
   assert.equal(service.data.contacts.status.state, 'ready')
@@ -224,9 +224,9 @@ test('dataset and syncResources delegate open-world resource sync through the wo
     into: 'remote'
   })
 
-  assert.equal(dataset.subjects.length, 2)
+  assert.equal(dataset.data.length, 2)
   assert.equal(status.status, 'synced')
-  assert.deepEqual(status.document.subjects, [remote, local])
+  assert.deepEqual(status.document.data, [remote, local])
 })
 
 test('local-first collections open and persist through IndexedDB as Turtle without Solid', async () => {
@@ -286,7 +286,7 @@ test('local-first collections open and persist through IndexedDB as Turtle witho
   await next.open()
 
   assertGraphEqual(next.data.contacts.list(), [persistedAda])
-  assertGraphEqual(next.dataset('contacts').subjects, [persistedAda])
+  assertGraphEqual(next.dataset('contacts').data, [persistedAda])
   assert.equal(next.data.contacts.list()[0].schema$name instanceof String, true)
   assert.equal(next.data.contacts.list()[0].schema$name.type, 'xsd$string')
 })
@@ -337,7 +337,7 @@ test('connect adds a remote replica and syncs a local-first collection', async (
   const status = await service.sync('contacts')
 
   assert.equal(status.status, 'synced')
-  assertGraphEqual(status.document.subjects, [remoteContact, localContact])
+  assertGraphEqual(status.document.data, [remoteContact, localContact])
   assertGraphEqual(service.data.contacts.list(), [remoteContact, localContact])
   assert.equal(service.status.resources.contacts.state, 'ready')
   assert.deepEqual(client.calls, [
@@ -366,7 +366,7 @@ test('collection create validates through oldm-shape before writing', async () =
     }),
     error => {
       assert.equal(error.message, 'solid-workspace: contacts object does not match its shape')
-      assert.equal(error.validation.ok, false)
+      assert.equal(error.cause.issues[0].pathString, 'schema$name')
       return true
     }
   )
@@ -404,12 +404,9 @@ test('collection handles can create locally before saveAll', async () => {
 })
 
 function contactShape() {
-  return shape({
-    class: 'schema$Person',
-    fields: {
-      schema$name: field.string({ min: 1, max: 1 }),
-      schema$email: field.string({ many: true, default: () => [] })
-    }
+  return shape('schema$Person', {
+    schema$name: field('schema$name', String),
+    schema$email: Optional(field('schema$email', [String]))
   })
 }
 
@@ -586,10 +583,17 @@ function createSolidDouble({
 }
 
 function graphDocument(subjects) {
-  return {
+  const document = {
     format: 'oldmed-graph',
-    subjects
+    subjects: Object.fromEntries(subjects.map(subject => [subject.id, subject]))
   }
+  Object.defineProperty(document, 'data', {
+    get() {
+      return Object.values(this.subjects)
+    },
+    enumerable: false
+  })
+  return document
 }
 
 function responseFor(url, object, options = {}) {

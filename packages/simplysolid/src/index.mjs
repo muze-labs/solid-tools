@@ -559,6 +559,8 @@ function remoteSourceForResource(name, descriptor = {}, config = {}, resourceId 
     id: remoteConfig.id ?? descriptor.remoteSource ?? `${resourceId}:solid`,
     readOnly: Boolean(remoteConfig.readOnly ?? descriptor.readOnly),
     shape: remoteConfig.shape ?? descriptor.shape ?? null,
+    load: remoteConfig.load ?? descriptor.load,
+    save: remoteConfig.save ?? descriptor.save,
     options: remoteConfig.options ?? descriptor.options ?? {},
     writeOptions: remoteConfig.writeOptions ?? descriptor.writeOptions
   })
@@ -595,6 +597,8 @@ function remoteResourcePart(name, descriptor = {}, service) {
       id: config.id ?? config.source ?? `${resourceId}:solid`,
       readOnly: Boolean(config.readOnly),
       shape: config.shape ?? null,
+      load: config.load,
+      save: config.save,
       options: config.options ?? {},
       writeOptions: config.writeOptions
     })
@@ -695,7 +699,8 @@ function registrationsFor(config, conventions) {
 
   return Object.entries(data)
     .map(([name, descriptor]) => {
-      if (!descriptor?.shape?.class) {
+      const forClass = descriptor.shape?.for
+      if (!forClass) {
         return null
       }
 
@@ -705,7 +710,7 @@ function registrationsFor(config, conventions) {
 
       return {
         collection: name,
-        forClass: descriptor.shape.class,
+        forClass,
         instanceContainer: sourceUrl?.endsWith('/') ? sourceUrl : null,
         instance: sourceUrl && !sourceUrl.endsWith('/') ? sourceUrl : null,
         private: descriptor.private ?? true,

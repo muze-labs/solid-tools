@@ -26,7 +26,7 @@ export const local = {
         format: config.format ?? 'oldmed-graph',
         version: config.version ?? 1,
         prefixes: config.prefixes ?? {},
-        subjects: []
+        subjects: {}
       }
     }
     let turtle = config.turtle ?? null

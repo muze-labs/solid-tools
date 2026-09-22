@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { collection, graph, local, mergeGraphDocuments, packageName, resource, solid, workspace } from '../src/index.mjs'
-import { field, shape } from '@muze-labs/oldm-shape'
+import { shape } from '@muze-labs/oldm-shape'
 
 test('solid-workspace scaffold exports source descriptors', () => {
   assert.equal(packageName, '@muze-labs/solid-workspace')
@@ -54,11 +54,8 @@ test('loads direct resources and tracks object source urls', async () => {
 })
 
 test('loads container resources into collection views', async () => {
-  const ContactShape = shape({
-    class: 'schema$Person',
-    fields: {
-      schema$name: field.string({ min: 1, max: 1 })
-    }
+  const ContactShape = shape('schema$Person', {
+    schema$name: String
   })
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
@@ -103,12 +100,12 @@ test('loads container resources into collection views', async () => {
 })
 
 test('creates new collection objects through createIn routing', async () => {
-  const ContactShape = shape({
-    class: 'schema$Person',
-    fields: {
-      schema$name: field.string({ min: 1, max: 1 }),
-      schema$email: field.string({ many: true, default: () => [] })
-    }
+  const ContactShape = shape('schema$Person', {
+    schema$name: String
+  })
+  ContactShape.applyDefaults = object => ({
+    schema$email: [],
+    ...object
   })
   const client = createSolidDouble()
   const ws = workspace({
@@ -141,11 +138,8 @@ test('creates new collection objects through createIn routing', async () => {
 })
 
 test('collection create requires an explicit createIn target', async () => {
-  const ContactShape = shape({
-    class: 'schema$Person',
-    fields: {
-      schema$name: field.string({ min: 1, max: 1 })
-    }
+  const ContactShape = shape('schema$Person', {
+    schema$name: String
   })
   const ws = workspace({
     sources: [
@@ -239,19 +233,18 @@ test('delegates fact-level source lookup to OLDM context when available', async 
 test('mergeGraphDocuments preserves open-world subjects and facts', () => {
   const result = mergeGraphDocuments([
     {
-      format: 'oldmed-graph',
-      prefixes: { schema: 'https://schema.org/' },
-      subjects: [
+      ...graphDocument([
         {
           id: 'urn:contact:ada',
           a: 'schema$Person',
           schema$name: 'Ada'
         }
-      ]
+      ]),
+      format: 'oldmed-graph',
+      prefixes: { schema: 'https://schema.org/' }
     },
     {
-      prefixes: { foaf: 'http://xmlns.com/foaf/0.1/' },
-      subjects: [
+      ...graphDocument([
         {
           id: 'urn:contact:ada',
           schema$email: 'ada@example.test'
@@ -261,7 +254,8 @@ test('mergeGraphDocuments preserves open-world subjects and facts', () => {
           a: 'schema$Person',
           schema$name: 'Grace'
         }
-      ]
+      ]),
+      prefixes: { foaf: 'http://xmlns.com/foaf/0.1/' }
     }
   ])
 
@@ -270,7 +264,7 @@ test('mergeGraphDocuments preserves open-world subjects and facts', () => {
     schema: 'https://schema.org/',
     foaf: 'http://xmlns.com/foaf/0.1/'
   })
-  assert.deepEqual(result.subjects, [
+  assert.deepEqual(result.data, [
     {
       id: 'urn:contact:ada',
       a: 'schema$Person',
@@ -311,7 +305,7 @@ test('workspace dataset exposes multiple resources as one open-world graph', asy
 
   await ws.load()
 
-  assert.deepEqual(ws.dataset().subjects, [
+  assert.deepEqual(ws.dataset().data, [
     {
       id: 'urn:contact:ada',
       a: 'schema$Person',
@@ -354,7 +348,7 @@ test('workspace sync additively projects selected sources into a target resource
 
   assert.equal(status.ok, true)
   assert.equal(status.status, 'synced')
-  assert.deepEqual(status.document.subjects, [remote, local])
+  assert.deepEqual(status.document.data, [remote, local])
   assert.deepEqual(client.calls, [
     ['resource.get', 'https://pod.example/local.ttl'],
     ['resource.get', 'https://pod.example/remote.ttl'],
@@ -383,10 +377,10 @@ test('local memory resources open without a Solid client and export Turtle', asy
   await ws.load()
   const turtle = await localNotes.turtle()
 
-  assertGraphEqual(ws.dataset().subjects, [ada])
-  assert.equal(ws.dataset().subjects[0].schema$name instanceof String, true)
-  assert.equal(ws.dataset().subjects[0].schema$name.type, 'xsd$string')
-  assert.deepEqual(ws.dataset().subjects[0].schema$about, {
+  assertGraphEqual(ws.dataset().data, [ada])
+  assert.equal(ws.dataset().data[0].schema$name instanceof String, true)
+  assert.equal(ws.dataset().data[0].schema$name.type, 'xsd$string')
+  assert.deepEqual(ws.dataset().data[0].schema$about, {
     id: 'https://example.test/topic'
   })
   assert.match(turtle, /schema:Person/)
@@ -437,9 +431,9 @@ test('local indexedDB resources persist Turtle across workspaces', async () => {
   await second.open('contacts')
   const turtle = await second.resources[0].local.turtle()
 
-  assertGraphEqual(second.dataset('contacts').subjects, [ada])
-  assert.equal(second.dataset('contacts').subjects[0].schema$name instanceof String, true)
-  assert.equal(second.dataset('contacts').subjects[0].schema$name.type, 'xsd$string')
+  assertGraphEqual(second.dataset('contacts').data, [ada])
+  assert.equal(second.dataset('contacts').data[0].schema$name instanceof String, true)
+  assert.equal(second.dataset('contacts').data[0].schema$name.type, 'xsd$string')
   assert.match(turtle, /schema:Person/)
   assert.match(turtle, /Ada/)
 })
@@ -474,7 +468,7 @@ test('workspace can add a Solid source later and sync local data into it', async
     }))
   await ws.open('solid-contacts')
 
-  assertGraphEqual(ws.dataset().subjects, [localContact, remoteContact])
+  assertGraphEqual(ws.dataset().data, [localContact, remoteContact])
 
   const status = await ws.sync({
     from: ['local-contacts'],
@@ -482,7 +476,7 @@ test('workspace can add a Solid source later and sync local data into it', async
   })
 
   assert.equal(status.status, 'synced')
-  assertGraphEqual(status.document.subjects, [remoteContact, localContact])
+  assertGraphEqual(status.document.data, [remoteContact, localContact])
 })
 
 test('workspace add accepts explicit factory-created parts and arrays of parts', () => {
@@ -526,7 +520,7 @@ test('open keeps local data when a remote source is unavailable', async () => {
 
   await ws.open()
 
-  assertGraphEqual(ws.dataset().subjects, [localContact])
+  assertGraphEqual(ws.dataset().data, [localContact])
   assert.equal(ws.status.state, 'ready')
   assert.equal(ws.status.sources['local-contacts'].state, 'ready')
   assert.equal(ws.status.sources['solid-contacts'].state, 'offline')
@@ -615,7 +609,7 @@ test('logical resources store reachable remote data in the local working copy', 
 
   await online.open()
 
-  assertGraphEqual(online.dataset('contacts').subjects, [remoteContact])
+  assertGraphEqual(online.dataset('contacts').data, [remoteContact])
 
   const offline = workspace()
     .add(resource('contacts', {
@@ -625,7 +619,7 @@ test('logical resources store reachable remote data in the local working copy', 
 
   await offline.open('contacts')
 
-  assertGraphEqual(offline.dataset('contacts').subjects, [remoteContact])
+  assertGraphEqual(offline.dataset('contacts').data, [remoteContact])
   assert.equal(offline.status.sources['contacts:local'].state, 'ready')
   assert.equal(offline.status.sources['contacts:solid'].state, 'offline')
   assert.equal(offline.status.resources.contacts.state, 'ready')
@@ -662,7 +656,7 @@ test('logical resources save offline locally and sync additively later', async (
   await ws.open('contacts')
   await ws.createIn('contacts', offlineLocal)
 
-  assertGraphEqual(ws.dataset('contacts').subjects, [originalRemote, offlineLocal])
+  assertGraphEqual(ws.dataset('contacts').data, [originalRemote, offlineLocal])
   assert.equal(ws.status.sources['contacts:solid'].state, 'sync-pending')
   assert.equal(ws.status.sources['contacts:solid'].syncPending, true)
 
@@ -677,8 +671,8 @@ test('logical resources save offline locally and sync additively later', async (
 
   assert.equal(status.ok, true)
   assert.equal(status.status, 'synced')
-  assertGraphEqual(status.document.subjects, [originalRemote, laterRemote, offlineLocal])
-  assertGraphEqual(ws.dataset('contacts').subjects, [originalRemote, laterRemote, offlineLocal])
+  assertGraphEqual(status.document.data, [originalRemote, laterRemote, offlineLocal])
+  assertGraphEqual(ws.dataset('contacts').data, [originalRemote, laterRemote, offlineLocal])
   assert.equal(ws.status.sources['contacts:solid'].state, 'ready')
   assert.equal(ws.status.sources['contacts:solid'].syncPending, false)
   assert.deepEqual(client.calls, [
@@ -688,11 +682,8 @@ test('logical resources save offline locally and sync additively later', async (
 })
 
 test('read-only sources report read_only for otherwise valid saves', async () => {
-  const ContactShape = shape({
-    class: 'schema$Person',
-    fields: {
-      schema$name: field.string({ min: 1, max: 1 })
-    }
+  const ContactShape = shape('schema$Person', {
+    schema$name: String
   })
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
@@ -724,11 +715,8 @@ test('read-only sources report read_only for otherwise valid saves', async () =>
 })
 
 test('read-only and validation failures are reported in saveAll statuses', async () => {
-  const ContactShape = shape({
-    class: 'schema$Person',
-    fields: {
-      schema$name: field.string({ min: 1, max: 1 })
-    }
+  const ContactShape = shape('schema$Person', {
+    schema$name: String
   })
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
@@ -756,7 +744,8 @@ test('read-only and validation failures are reported in saveAll statuses', async
     () => ws.saveAll(),
     error => {
       assert.equal(error.message, 'solid-workspace: saveAll failed')
-      assert.equal(error.failures[0].status, 'validation_failed')
+      assert.equal(error.cause.failures[0].status, 'validation_failed')
+      assert.equal(error.cause.failures[0].issues[0].pathString, 'schema$name')
       return true
     }
   )
@@ -917,10 +906,17 @@ function createSolidDouble({ resources = {}, containers = {}, contexts = {} } = 
 }
 
 function graphDocument(subjects) {
-  return {
+  const document = {
     format: 'oldmed-graph',
-    subjects
+    subjects: Object.fromEntries(subjects.map(subject => [subject.id, subject]))
   }
+  Object.defineProperty(document, 'data', {
+    get() {
+      return Object.values(this.subjects)
+    },
+    enumerable: false
+  })
+  return document
 }
 
 function responseFor(url, object, options = {}) {
@@ -937,11 +933,13 @@ function dataFor(url, object, options = {}) {
     return object
   }
 
+  const subjects = {}
+  for (const subject of [object]) {
+    subjects[subject.id ?? url] = subject
+  }
+
   return {
-    primary: object,
-    subjects: {
-      [object.id ?? url]: object
-    },
+    subjects,
     context: options.context ?? null
   }
 }

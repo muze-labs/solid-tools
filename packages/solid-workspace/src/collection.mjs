@@ -1,5 +1,5 @@
 import oldm from '@muze-nl/oldm'
-import { anyOf, from, matchIf } from '@muze-nl/jaqt'
+import { from, matchIf } from '@muze-nl/jaqt'
 import * as assert from '@muze-nl/assert'
 import { Optional } from '@muze-nl/assert'
 
@@ -23,15 +23,13 @@ export class WorkspaceCollection {
   list() {
     const sourceIds = oldm.many(this.descriptor.sources)
       .map(source => this.workspace.sourcePatterns.get(source) ?? source)
-    const className = this.descriptor.shape?.class
+    const className = this.descriptor.shape?.for
 
     return from(this.workspace.records)
       .where({
         deleted: false,
-        sourceId: matchIf(sourceIds.length > 0, anyOf(...sourceIds)),
-        object: matchIf(className, {
-          a: className
-        })
+        sourceId: matchIf(sourceIds.length > 0, sourceIds),
+        object: matchIf(className, { a: className })
       })
       .select(record => record.object)
       .toArray()
@@ -52,11 +50,10 @@ export class WorkspaceCollection {
       data = this.descriptor.shape.applyDefaults(object)
     }
 
-    const validation = this.descriptor.shape?.validate?.(data)
-    if (validation && !validation.ok) {
-      const error = new Error(`solid-workspace: ${this.name} object does not match its shape`)
-      error.validation = validation
-      throw error
+    if (this.descriptor.shape) {
+      this.descriptor.shape.assert(data, {
+        message: `solid-workspace: ${this.name} object does not match its shape`
+      })
     }
 
     return this.workspace.createIn(createIn, data, {
@@ -81,14 +78,12 @@ export class WorkspaceCollection {
   saveAll() {
     const sourceIds = oldm.many(this.descriptor.sources)
       .map(source => this.workspace.sourcePatterns.get(source) ?? source)
-    const className = this.descriptor.shape?.class
+    const className = this.descriptor.shape?.for
 
     return this.workspace.saveAll(from(this.workspace.records)
       .where({
-        sourceId: matchIf(sourceIds.length > 0, anyOf(...sourceIds)),
-        object: matchIf(className, {
-          a: className
-        })
+        sourceId: matchIf(sourceIds.length > 0, sourceIds),
+        object: matchIf(className, { a: className })
       })
       .toArray())
   }

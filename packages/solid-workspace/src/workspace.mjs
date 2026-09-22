@@ -331,7 +331,7 @@ export class SolidWorkspace {
 
         if (document.changed || options.force === true) {
           await saveGraphDocument(this, logicalResource.local, document, options.writeOptions)
-          this.replaceSourceRecords(logicalResource.local, cloneValue(document.subjects), {
+          this.replaceSourceRecords(logicalResource.local, cloneValue(document.data), {
             source: logicalResource.local,
             sourceUrl: logicalResource.local.url,
             status: 'loaded'
@@ -424,7 +424,7 @@ export class SolidWorkspace {
           source: descriptor,
           workspace: this
         }))
-        const objects = document.subjects
+        const objects = document.data
 
         if (descriptor.append) {
           this.trackObjects(objects, {
@@ -447,7 +447,7 @@ export class SolidWorkspace {
       assertSolidClient(this)
       try {
         const data = await this.solid.get(descriptor.url, requestOptions(descriptor.options))
-        const objects = oldm.subjects(data)
+        const objects = Object.values(data.subjects)
 
         if (descriptor.append) {
           this.trackObjects(objects, {
@@ -515,14 +515,16 @@ export class SolidWorkspace {
   dataset(options = {}) {
     const config = normalizeDatasetOptions(this, options)
     const records = recordsForSources(this, config.sources ?? this.sources)
-    return mergeGraphDocuments([
-      {
+    return mergeGraphDocuments(records
+      .filter(record => record.object.id)
+      .map(record => ({
         format: config.format,
         version: config.version,
         prefixes: config.prefixes,
-        subjects: records.map(record => record.object)
-      }
-    ], config)
+        subjects: {
+          [record.object.id]: record.object
+        }
+      })), config)
   }
 
   async sync(options = {}) {
@@ -694,12 +696,12 @@ export class SolidWorkspace {
 
     try {
       await saveGraphDocument(this, localSource, document, options.localWriteOptions ?? options.writeOptions)
-      this.replaceSourceRecords(remoteSource, cloneValue(document.subjects), {
+      this.replaceSourceRecords(remoteSource, cloneValue(document.data), {
         source: remoteSource,
         sourceUrl: remoteSource.url,
         status: 'loaded'
       })
-      this.replaceSourceRecords(localSource, cloneValue(document.subjects), {
+      this.replaceSourceRecords(localSource, cloneValue(document.data), {
         source: localSource,
         sourceUrl: localSource.url,
         status: 'loaded'
@@ -847,12 +849,12 @@ export class SolidWorkspace {
       throw new Error('solid-workspace: cannot save an object that is not tracked by this workspace')
     }
 
-    const validation = validateRecord(record)
-    if (!validation.ok) {
+    const issues = validateRecord(record)
+    if (issues) {
       return updateRecordStatus(record, {
         ok: false,
         status: 'validation_failed',
-        issues: validation.issues
+        issues
       })
     }
 
@@ -948,9 +950,12 @@ export class SolidWorkspace {
     const failures = statuses.filter(status => !status.ok)
 
     if (failures.length > 0) {
-      const error = new Error('solid-workspace: saveAll failed')
+      const error = new Error('solid-workspace: saveAll failed', {
+        cause: {
+          failures
+        }
+      })
       error.statuses = statuses
-      error.failures = failures
       throw error
     }
 
@@ -1276,8 +1281,10 @@ function oldmSourcesOf(record, object, predicate, value) {
 }
 
 function validateRecord(record) {
-  const validation = record.source?.shape?.validate?.(record.object)
-  return validation ?? { ok: true, issues: [] }
+  if (record.source.shape) {
+    return record.source.shape.fails(record.object)
+  }
+  return false
 }
 
 function writeOptions(source, options) {

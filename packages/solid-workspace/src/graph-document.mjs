@@ -9,21 +9,21 @@ export function mergeGraphDocuments(documents = [], options = {}) {
     format: options.format ?? base.format,
     version: options.version ?? base.version,
     prefixes: {},
-    subjects: []
+    subjects: {}
   }
   const subjectsById = new Map()
 
   for (const document of documents.map(graphDocumentFrom)) {
     Object.assign(merged.prefixes, document.prefixes)
 
-    for (const subject of document.subjects) {
+    for (const subject of document.data) {
       if (!subject?.id) continue
 
       const current = subjectsById.get(subject.id)
       if (!current) {
         const clone = cloneValue(subject)
         subjectsById.set(subject.id, clone)
-        merged.subjects.push(clone)
+        merged.subjects[clone.id] = clone
         continue
       }
 
@@ -43,32 +43,38 @@ export function mergeGraphDocuments(documents = [], options = {}) {
   if (target.format == null) delete target.format
   if (target.version == null) delete target.version
 
-  return target
+  return withData(target)
 }
 
 export function graphDocumentFrom(value, options = {}) {
   if (!value) {
-    return {
+    return withData({
       format: null,
       version: null,
       prefixes: {},
-      subjects: []
-    }
+      subjects: {}
+    })
   }
 
   if (typeof value === 'string' || value instanceof String) {
     return graphDocumentFromTurtle(value, options)
   }
 
-  const subjects = oldm.subjects(value)
-
   if (Array.isArray(value)) {
-    return {
+    return withData({
       format: null,
       version: null,
       prefixes: {},
-      subjects
-    }
+      subjects: subjectsFromArray(value)
+    })
+  }
+
+  let subjects = {}
+  if (Array.isArray(value.subjects)) {
+    throw new TypeError('solid-workspace: graph document subjects must be an object map')
+  }
+  if (value.subjects && typeof value.subjects === 'object') {
+    subjects = value.subjects
   }
 
   if (
@@ -76,32 +82,30 @@ export function graphDocumentFrom(value, options = {}) {
     || Object.hasOwn(value, 'version')
     || Object.hasOwn(value, 'prefixes')
     || Object.hasOwn(value, 'subjects')
-    || Object.hasOwn(value, 'data')
-    || Object.hasOwn(value, 'primary')
   ) {
-    return {
+    return withData({
       format: value.format ?? null,
       version: value.version ?? null,
       prefixes: value.prefixes ?? {},
       subjects
-    }
+    })
   }
 
-  return {
+  return withData({
     format: null,
     version: null,
     prefixes: {},
     subjects
-  }
+  })
 }
 
 export function cloneGraphDocument(document) {
   const graphDocument = graphDocumentFrom(document)
-  return {
+  return withData({
     ...graphDocument,
     prefixes: cloneValue(graphDocument.prefixes),
     subjects: cloneValue(graphDocument.subjects)
-  }
+  })
 }
 
 export function graphDocumentFromTurtle(turtle, options = {}) {
@@ -110,11 +114,12 @@ export function graphDocumentFromTurtle(turtle, options = {}) {
     prefixes: options.prefixes ?? {}
   })
   const document = graphDocumentFrom(context.parse(String(turtle), options.url, 'text/turtle'))
-  return {
+  return withData({
     ...document,
-    subjects: document.subjects
+    subjects: subjectsFromArray(document.data
       .filter(subject => Object.keys(subject).length > 1)
-  }
+    )
+  })
 }
 
 export async function graphDocumentToTurtle(document, options = {}) {
@@ -128,7 +133,7 @@ export async function graphDocumentToTurtle(document, options = {}) {
   })
   const graph = context.parse('', options.url, 'text/turtle')
 
-  for (const subject of graphDocument.subjects) {
+  for (const subject of graphDocument.data) {
     writeSubjectToGraph({ graph, subject })
   }
 
@@ -273,8 +278,28 @@ function graphDocumentComparable(document) {
     format: document.format ?? null,
     version: document.version ?? null,
     prefixes: document.prefixes ?? {},
-    subjects: document.subjects ?? []
+    subjects: Object.values(document.subjects ?? {})
   }
+}
+
+function withData(document) {
+  Object.defineProperty(document, 'data', {
+    get() {
+      return Object.values(this.subjects)
+    },
+    enumerable: false
+  })
+  return document
+}
+
+function subjectsFromArray(subjects) {
+  const result = {}
+  for (const subject of subjects) {
+    if (subject?.id) {
+      result[subject.id] = subject
+    }
+  }
+  return result
 }
 
 function writeSubjectToGraph({ graph, subject }) {

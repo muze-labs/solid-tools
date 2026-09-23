@@ -74,7 +74,7 @@ function createSolidDouble() {
           id: 'https://pod.example/storage/notes/archive/',
           resource: {
             id: 'https://pod.example/storage/notes/archive/',
-            a: ['ldp$Container']
+            a: ['http://www.w3.org/ns/ldp#Container']
           }
         }
       ]
@@ -166,7 +166,7 @@ test('list maps LDP containment to JSFS entries', async () => {
       type: 'folder',
       resource: {
         id: 'https://pod.example/storage/notes/archive/',
-        a: ['ldp$Container']
+        a: ['http://www.w3.org/ns/ldp#Container']
       }
     }
   ])
@@ -230,4 +230,15 @@ test('solidFs returns a JSFS filesystem wrapper around SolidAdapter', async () =
     ['client', 'get', 'https://pod.example/storage/notes/a.txt'],
     ['client', 'put', 'https://pod.example/storage/notes/b.txt']
   ])
+})
+
+
+test('list recognizes an RDF container even without a trailing slash', async () => {
+  const solid = createSolidDouble()
+  solid.contains = async () => [{
+    id: 'https://pod.example/storage/archive',
+    resource: {id: 'https://pod.example/storage/archive', a: ['http://www.w3.org/ns/ldp#Container']}
+  }]
+  const adapter = new SolidAdapter('https://pod.example/storage/', {solid, metroClient: solid.metro})
+  assert.equal((await adapter.list('/'))[0].type, 'folder')
 })

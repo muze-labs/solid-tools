@@ -182,7 +182,7 @@ export default class SolidAdapter {
       const resource = entry.resource
       const entryUrl = isAbsoluteUrl(entry.id) ? entry.id : new URL(entry.id, url).href
       const path = pathFromUrl(this.#rootUrl, entryUrl)
-      const isContainer = hasType(resource, 'ldp$Container') || entryUrl.endsWith('/')
+      const isContainer = hasType(resource, 'http://www.w3.org/ns/ldp#Container') || entryUrl.endsWith('/')
 
       return {
         filename: filename(entryUrl),

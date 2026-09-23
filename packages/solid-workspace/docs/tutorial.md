@@ -21,13 +21,11 @@ const solidClient = solidApi(client)
 
 ```js
 import { field, shape } from '@muze-labs/oldm-shape'
+import { Optional } from '@muze-nl/assert'
 
-const ContactShape = shape({
-  class: 'schema$Person',
-  fields: {
-    schema$name: field.string({ min: 1, max: 1 }),
-    schema$email: field.string({ many: true, default: () => [] })
-  }
+const ContactShape = shape('https://schema.org/Person', {
+  schema$name: field('schema$name', String),
+  schema$email: Optional(field('schema$email', [String]))
 })
 ```
 
@@ -67,7 +65,7 @@ Container sources are listed with the Solid API `contains()` helper. Each contai
 
 ```js
 const ada = await ws.collections.contacts.create({
-  a: 'schema$Person',
+  a: 'https://schema.org/Person',
   schema$name: 'Ada Lovelace'
 })
 

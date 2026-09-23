@@ -5,6 +5,13 @@ import { from } from '@muze-nl/jaqt'
 import * as assert from '@muze-nl/assert'
 import { allOf, validURL } from '@muze-nl/assert'
 
+const vocabulary = oldm.context()
+
+function propertyValue(subject, iri) {
+  const owner = subject?.graph ?? vocabulary
+  return subject?.[owner.propertyName(iri)]
+}
+
 const BASIC_CONTAINER = 'http://www.w3.org/ns/ldp#BasicContainer'
 const SOLID_RESPONSE = Symbol.for('muze.metro-solid.response')
 
@@ -85,7 +92,7 @@ export function solidApi(base, methods) {
       })
       const response = result[SOLID_RESPONSE]
 
-      return from(oldm.many(result?.primary?.ldp$contains))
+      return from(oldm.many(propertyValue(result?.primary, 'http://www.w3.org/ns/ldp#contains')))
         .select(resource => {
           const id = typeof resource === 'string' ? resource : resource?.id
           return { id, url: id, resource, response }
@@ -119,7 +126,7 @@ export function solidApi(base, methods) {
 
     async discoverStorage(webId, options = {}) {
       const profile = await this.discoverProfile(webId, options)
-      const storageUrls = [...new Set(from(ids(profile.pim$storage))
+      const storageUrls = [...new Set(from(ids(propertyValue(profile, 'http://www.w3.org/ns/pim/space#storage')))
         .select(ensureSlash)
         .toArray())]
 
@@ -134,7 +141,7 @@ export function solidApi(base, methods) {
 
     async discoverWebId(webId, options = {}) {
       const profile = await this.discoverProfile(webId, options)
-      const storage = [...new Set(from(ids(profile.pim$storage))
+      const storage = [...new Set(from(ids(propertyValue(profile, 'http://www.w3.org/ns/pim/space#storage')))
         .select(ensureSlash)
         .toArray())]
 
@@ -142,8 +149,8 @@ export function solidApi(base, methods) {
         webId,
         profile,
         storage,
-        issuer: ids(profile.solid$oidcIssuer)[0] ?? null,
-        inbox: ids(profile.ldp$inbox)[0] ?? null
+        issuer: ids(propertyValue(profile, 'http://www.w3.org/ns/solid/terms#oidcIssuer'))[0] ?? null,
+        inbox: ids(propertyValue(profile, 'http://www.w3.org/ns/ldp#inbox'))[0] ?? null
       }
     },
 

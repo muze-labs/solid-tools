@@ -49,10 +49,12 @@ test('solidApi accepts a base URL string and caller-defined methods', async () =
     requested.push(req)
     return new Response(`
       @prefix pims: <http://www.w3.org/ns/pim/space#>.
-      @prefix solid: <http://www.w3.org/ns/solid/terms#>.
+      @prefix auth: <http://www.w3.org/ns/solid/terms#>.
+      @prefix container: <http://www.w3.org/ns/ldp#>.
 
       <#me> pims:storage <https://pod.example/storage/>;
-        solid:oidcIssuer <https://issuer.example/>.
+        auth:oidcIssuer <https://issuer.example/>;
+        container:inbox <https://pod.example/inbox/>.
     `, {
       status: 200,
       headers: { 'Content-Type': 'text/turtle' }
@@ -72,6 +74,7 @@ test('solidApi accepts a base URL string and caller-defined methods', async () =
     assert.equal(solid.oldm.graph(requested[0].url).primary, profile.profile)
     assert.deepEqual(profile.storage, ['https://pod.example/storage/'])
     assert.equal(profile.issuer, 'https://issuer.example/')
+    assert.equal(profile.inbox, 'https://pod.example/inbox/')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -291,4 +294,15 @@ test('errors remain Metro thrower errors with the response in cause', () => {
 
   assert.equal(responseFromError(error), response)
   assert.equal(statusFromError(error), 404)
+})
+
+
+test('contains reads the predicate using the source graph prefix', async () => {
+  const {client} = mockClient(req => response({
+    url: req.url,
+    headers: {'Content-Type': 'text/turtle'},
+    body: '@prefix members: <http://www.w3.org/ns/ldp#>. <> members:contains <child>.'
+  }))
+  const entries = await solidApi(client).contains('https://pod.example/storage/')
+  assert.deepEqual(entries.map(entry => entry.id), ['https://pod.example/storage/child'])
 })

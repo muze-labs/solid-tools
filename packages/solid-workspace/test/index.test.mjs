@@ -28,7 +28,7 @@ test('solid-workspace scaffold exports source descriptors', () => {
 test('loads direct resources and tracks object source urls', async () => {
   const contact = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   }
   const client = createSolidDouble({
@@ -54,17 +54,17 @@ test('loads direct resources and tracks object source urls', async () => {
 })
 
 test('loads container resources into collection views', async () => {
-  const ContactShape = shape('schema$Person', {
+  const ContactShape = shape('https://schema.org/Person', {
     schema$name: String
   })
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   }
   const org = {
     id: 'https://pod.example/contacts/acme.ttl#org',
-    a: 'schema$Organization',
+    a: 'https://schema.org/Organization',
     schema$name: 'Acme'
   }
   const client = createSolidDouble({
@@ -100,7 +100,7 @@ test('loads container resources into collection views', async () => {
 })
 
 test('creates new collection objects through createIn routing', async () => {
-  const ContactShape = shape('schema$Person', {
+  const ContactShape = shape('https://schema.org/Person', {
     schema$name: String
   })
   ContactShape.applyDefaults = object => ({
@@ -124,7 +124,7 @@ test('creates new collection objects through createIn routing', async () => {
 
   const ada = await ws.collections.contacts.create({
     id: 'urn:uuid:ada',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   })
   const status = await ws.collections.contacts.save(ada)
@@ -138,7 +138,7 @@ test('creates new collection objects through createIn routing', async () => {
 })
 
 test('collection create requires an explicit createIn target', async () => {
-  const ContactShape = shape('schema$Person', {
+  const ContactShape = shape('https://schema.org/Person', {
     schema$name: String
   })
   const ws = workspace({
@@ -156,7 +156,7 @@ test('collection create requires an explicit createIn target', async () => {
   await assert.rejects(
     () => ws.collections.contacts.create({
       id: 'urn:uuid:ada',
-      a: 'schema$Person',
+      a: 'https://schema.org/Person',
       schema$name: 'Ada'
     }),
     /collection contacts needs createIn/
@@ -166,7 +166,7 @@ test('collection create requires an explicit createIn target', async () => {
 test('updates and deletes existing tracked resources', async () => {
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   }
   const client = createSolidDouble({
@@ -199,7 +199,7 @@ test('updates and deletes existing tracked resources', async () => {
 test('delegates fact-level source lookup to OLDM context when available', async () => {
   const contact = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   }
   const context = {
@@ -236,7 +236,7 @@ test('mergeGraphDocuments preserves open-world subjects and facts', () => {
       ...graphDocument([
         {
           id: 'urn:contact:ada',
-          a: 'schema$Person',
+          a: 'https://schema.org/Person',
           schema$name: 'Ada'
         }
       ]),
@@ -251,7 +251,7 @@ test('mergeGraphDocuments preserves open-world subjects and facts', () => {
         },
         {
           id: 'urn:contact:grace',
-          a: 'schema$Person',
+          a: 'https://schema.org/Person',
           schema$name: 'Grace'
         }
       ]),
@@ -267,13 +267,13 @@ test('mergeGraphDocuments preserves open-world subjects and facts', () => {
   assert.deepEqual(result.data, [
     {
       id: 'urn:contact:ada',
-      a: 'schema$Person',
+      a: 'https://schema.org/Person',
       schema$name: 'Ada',
       schema$email: 'ada@example.test'
     },
     {
       id: 'urn:contact:grace',
-      a: 'schema$Person',
+      a: 'https://schema.org/Person',
       schema$name: 'Grace'
     }
   ])
@@ -282,7 +282,7 @@ test('mergeGraphDocuments preserves open-world subjects and facts', () => {
 test('workspace dataset exposes multiple resources as one open-world graph', async () => {
   const adaLocal = {
     id: 'urn:contact:ada',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   }
   const adaRemote = {
@@ -308,7 +308,7 @@ test('workspace dataset exposes multiple resources as one open-world graph', asy
   assert.deepEqual(ws.dataset().data, [
     {
       id: 'urn:contact:ada',
-      a: 'schema$Person',
+      a: 'https://schema.org/Person',
       schema$name: 'Ada',
       schema$email: 'ada@example.test'
     }
@@ -318,12 +318,12 @@ test('workspace dataset exposes multiple resources as one open-world graph', asy
 test('workspace sync additively projects selected sources into a target resource', async () => {
   const local = {
     id: 'urn:contact:local',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Local'
   }
   const remote = {
     id: 'urn:contact:remote',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Remote'
   }
   const client = createSolidDouble({
@@ -360,7 +360,7 @@ test('workspace sync additively projects selected sources into a target resource
 test('local memory resources open without a Solid client and export Turtle', async () => {
   const ada = {
     id: 'urn:contact:ada',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada',
     schema$about: {
       id: 'https://example.test/topic'
@@ -379,7 +379,7 @@ test('local memory resources open without a Solid client and export Turtle', asy
 
   assertGraphEqual(ws.dataset().data, [ada])
   assert.equal(ws.dataset().data[0].schema$name instanceof String, true)
-  assert.equal(ws.dataset().data[0].schema$name.type, 'xsd$string')
+  assert.equal(ws.dataset().data[0].schema$name.type, 'http://www.w3.org/2001/XMLSchema#string')
   assert.deepEqual(ws.dataset().data[0].schema$about, {
     id: 'https://example.test/topic'
   })
@@ -391,7 +391,7 @@ test('local indexedDB resources persist Turtle across workspaces', async () => {
   const indexedDB = createIndexedDBDouble()
   const ada = {
     id: 'urn:contact:ada',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   }
 
@@ -433,7 +433,7 @@ test('local indexedDB resources persist Turtle across workspaces', async () => {
 
   assertGraphEqual(second.dataset('contacts').data, [ada])
   assert.equal(second.dataset('contacts').data[0].schema$name instanceof String, true)
-  assert.equal(second.dataset('contacts').data[0].schema$name.type, 'xsd$string')
+  assert.equal(second.dataset('contacts').data[0].schema$name.type, 'http://www.w3.org/2001/XMLSchema#string')
   assert.match(turtle, /schema:Person/)
   assert.match(turtle, /Ada/)
 })
@@ -441,12 +441,12 @@ test('local indexedDB resources persist Turtle across workspaces', async () => {
 test('workspace can add a Solid source later and sync local data into it', async () => {
   const localContact = {
     id: 'urn:contact:local',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Local'
   }
   const remoteContact = {
     id: 'urn:contact:remote',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Remote'
   }
   const localSource = local.memory('local-contacts', {
@@ -505,7 +505,7 @@ test('workspace add accepts explicit factory-created parts and arrays of parts',
 test('open keeps local data when a remote source is unavailable', async () => {
   const localContact = {
     id: 'urn:contact:local',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Local'
   }
   const ws = workspace()
@@ -544,7 +544,7 @@ test('load remains strict when a source cannot be opened', async () => {
 test('local saves can mark a remote source sync-pending until sync succeeds', async () => {
   const localContact = {
     id: 'urn:contact:local',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Local'
   }
   const client = createSolidDouble({
@@ -584,7 +584,7 @@ test('local saves can mark a remote source sync-pending until sync succeeds', as
 test('logical resources store reachable remote data in the local working copy', async () => {
   const remoteContact = {
     id: 'urn:contact:remote',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Remote'
   }
   const localReplica = local.memory('contacts:local', {
@@ -628,17 +628,17 @@ test('logical resources store reachable remote data in the local working copy', 
 test('logical resources save offline locally and sync additively later', async () => {
   const originalRemote = {
     id: 'urn:contact:remote',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Remote'
   }
   const offlineLocal = {
     id: 'urn:contact:local',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Local'
   }
   const laterRemote = {
     id: 'urn:contact:later-remote',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Later Remote'
   }
   const localReplica = local.memory('contacts:local', {
@@ -682,12 +682,12 @@ test('logical resources save offline locally and sync additively later', async (
 })
 
 test('read-only sources report read_only for otherwise valid saves', async () => {
-  const ContactShape = shape('schema$Person', {
+  const ContactShape = shape('https://schema.org/Person', {
     schema$name: String
   })
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   }
   const client = createSolidDouble({
@@ -715,12 +715,12 @@ test('read-only sources report read_only for otherwise valid saves', async () =>
 })
 
 test('read-only and validation failures are reported in saveAll statuses', async () => {
-  const ContactShape = shape('schema$Person', {
+  const ContactShape = shape('https://schema.org/Person', {
     schema$name: String
   })
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    a: 'schema$Person'
+    a: 'https://schema.org/Person'
   }
   const client = createSolidDouble({
     resources: {
@@ -943,3 +943,13 @@ function dataFor(url, object, options = {}) {
     context: options.context ?? null
   }
 }
+
+
+test('merge deduplicates plain and full-IRI xsd:string literals', () => {
+  const text = Object.assign(new String('same text'), {type: 'http://www.w3.org/2001/XMLSchema#string'})
+  const merged = mergeGraphDocuments([
+    graphDocument([{id: 'urn:test:one', schema$name: 'same text'}]),
+    graphDocument([{id: 'urn:test:one', schema$name: text}])
+  ])
+  assert.equal(merged.subjects['urn:test:one'].schema$name, 'same text')
+})

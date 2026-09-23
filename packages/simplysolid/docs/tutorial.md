@@ -28,13 +28,11 @@ const solidClient = solidApi(client)
 
 ```js
 import { field, shape } from '@muze-labs/oldm-shape'
+import { Optional } from '@muze-nl/assert'
 
-const ContactShape = shape({
-  class: 'schema$Person',
-  fields: {
-    schema$name: field.string({ min: 1, max: 1 }),
-    schema$email: field.string({ many: true, default: () => [] })
-  }
+const ContactShape = shape('https://schema.org/Person', {
+  schema$name: field('schema$name', String),
+  schema$email: Optional(field('schema$email', [String]))
 })
 ```
 
@@ -92,7 +90,7 @@ const contactsApp = app({
   commands: {
     async addContact() {
       await this.solid.data.contacts.create({
-        a: 'schema$Person',
+        a: 'https://schema.org/Person',
         schema$name: 'New contact'
       })
       this.data.contacts = this.solid.data.contacts.items

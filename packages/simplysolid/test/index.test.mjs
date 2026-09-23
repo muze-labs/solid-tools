@@ -12,7 +12,7 @@ test('simplySolid exposes app.solid status and collection handles', async () => 
   const ContactShape = contactShape()
   const ada = {
     id: 'https://pod.example/contacts/ada.ttl#me',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   }
   const client = createSolidDouble({
@@ -74,7 +74,7 @@ test('setup conventions expose app storage, settings, and registrations', () => 
   assert.deepEqual(service.registrations, [
     {
       collection: 'contacts',
-      forClass: 'schema$Person',
+      forClass: 'https://schema.org/Person',
       instanceContainer: 'https://pod.example/storage/contacts/',
       instance: null,
       private: true,
@@ -172,7 +172,7 @@ test('collection create, update, and delete delegate through solid-workspace', a
 
   const ada = await service.data.contacts.create({
     id: 'urn:uuid:ada',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   })
   const updated = await service.data.contacts.update(ada, {
@@ -194,12 +194,12 @@ test('collection create, update, and delete delegate through solid-workspace', a
 test('dataset and syncResources delegate open-world resource sync through the workspace', async () => {
   const local = {
     id: 'urn:contact:local',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Local'
   }
   const remote = {
     id: 'urn:contact:remote',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Remote'
   }
   const client = createSolidDouble({
@@ -253,12 +253,12 @@ test('local-first collections open and persist through IndexedDB as Turtle witho
   await service.open()
   const ada = await service.data.contacts.create({
     id: 'urn:contact:ada',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   })
   const persistedAda = {
     id: 'urn:contact:ada',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   }
 
@@ -288,7 +288,7 @@ test('local-first collections open and persist through IndexedDB as Turtle witho
   assertGraphEqual(next.data.contacts.list(), [persistedAda])
   assertGraphEqual(next.dataset('contacts').data, [persistedAda])
   assert.equal(next.data.contacts.list()[0].schema$name instanceof String, true)
-  assert.equal(next.data.contacts.list()[0].schema$name.type, 'xsd$string')
+  assert.equal(next.data.contacts.list()[0].schema$name.type, 'http://www.w3.org/2001/XMLSchema#string')
 })
 
 test('connect adds a remote replica and syncs a local-first collection', async () => {
@@ -296,12 +296,12 @@ test('connect adds a remote replica and syncs a local-first collection', async (
   const ContactShape = contactShape()
   const localContact = {
     id: 'urn:contact:local',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Local'
   }
   const remoteContact = {
     id: 'urn:contact:remote',
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Remote'
   }
   const client = createSolidDouble({
@@ -362,7 +362,7 @@ test('collection create validates through oldm-shape before writing', async () =
 
   await assert.rejects(
     () => service.data.contacts.create({
-      a: 'schema$Person'
+      a: 'https://schema.org/Person'
     }),
     error => {
       assert.equal(error.message, 'solid-workspace: contacts object does not match its shape')
@@ -388,7 +388,7 @@ test('collection handles can create locally before saveAll', async () => {
   })
 
   const ada = await service.data.contacts.create({
-    a: 'schema$Person',
+    a: 'https://schema.org/Person',
     schema$name: 'Ada'
   }, { save: false })
 
@@ -404,7 +404,7 @@ test('collection handles can create locally before saveAll', async () => {
 })
 
 function contactShape() {
-  return shape('schema$Person', {
+  return shape('https://schema.org/Person', {
     schema$name: field('schema$name', String),
     schema$email: Optional(field('schema$email', [String]))
   })

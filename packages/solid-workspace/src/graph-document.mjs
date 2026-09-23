@@ -259,7 +259,7 @@ function primitiveWrapperData(value) {
 
   for (const [key, item] of Object.entries(value)) {
     if (!/^\d+$/.test(key)) {
-      if (value instanceof String && key === 'type' && item === 'xsd$string') {
+      if (value instanceof String && key === 'type' && item === 'http://www.w3.org/2001/XMLSchema#string') {
         continue
       }
       data[key] = item

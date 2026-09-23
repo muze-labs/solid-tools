@@ -10,3 +10,13 @@ Docs:
 
 - [Tutorial](docs/tutorial.md)
 - [Reference](docs/reference.md)
+
+## RDF values
+
+Property names remain prefixed, such as `schema$name`. Class values in `a` and
+literal datatypes in `.type` are full IRIs. Use full IRIs in plain-object data and
+collection shape targets, for example `shape('https://schema.org/Person', {...})`.
+Expand a prefixed constant once with its OLDM context before using it in filters.
+The workspace preserves HTTP/HTTPS namespace identity and does not rewrite
+application-owned legacy documents. OLDM graph write helpers still accept
+prefixed inputs where documented.

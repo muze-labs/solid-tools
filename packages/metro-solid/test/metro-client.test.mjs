@@ -77,14 +77,14 @@ function mockSolidStoragePod({ token = 'test-token' } = {}) {
         status: 200,
         headers: { 'Content-Type': 'text/turtle' },
         url: req.url,
-        body: {
-          primary: {
-            id: 'https://pod.example/profile#me',
-            pim$storage: { id: 'https://pod.example/storage' },
-            solid$oidcIssuer: { id: 'https://issuer.example/' },
-            ldp$inbox: { id: 'https://pod.example/inbox/' }
-          }
-        }
+        body: `@prefix pim: <http://www.w3.org/ns/pim/space#> .
+@prefix solid: <http://www.w3.org/ns/solid/terms#> .
+@prefix ldp: <http://www.w3.org/ns/ldp#> .
+<https://pod.example/profile#me>
+  pim:storage <https://pod.example/storage> ;
+  solid:oidcIssuer <https://issuer.example/> ;
+  ldp:inbox <https://pod.example/inbox/> .
+`
       })
     }
 
@@ -93,14 +93,10 @@ function mockSolidStoragePod({ token = 'test-token' } = {}) {
         status: 200,
         headers: { 'Content-Type': 'text/turtle' },
         url: req.url,
-        body: {
-          primary: {
-            ldp$contains: [
-              { id: 'https://pod.example/storage/notes/a.txt' },
-              { id: 'https://pod.example/storage/notes/b.txt' }
-            ]
-          }
-        }
+        body: `@prefix ldp: <http://www.w3.org/ns/ldp#> .
+<https://pod.example/storage/notes/>
+  ldp:contains <https://pod.example/storage/notes/a.txt>, <https://pod.example/storage/notes/b.txt> .
+`
       })
     }
 

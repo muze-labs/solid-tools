@@ -75,7 +75,7 @@ It should own only Solid HTTP affordances:
 - `PUT`-with-`If-None-Match: *` safe create.
 - LDP containment reads through `ldp:contains`.
 - Automatic `metro-oldm` installation for linked-data parsing/writing.
-- WebID/profile/storage discovery from parsed response data, using the default `pims$storage` key.
+- WebID/profile/storage discovery from parsed response data, using the default `pim$storage` key.
 
 It should not own:
 

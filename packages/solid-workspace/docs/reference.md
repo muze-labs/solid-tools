@@ -4,7 +4,7 @@ Solid Workspace is the source-aware data layer over OLDMed graph resources. It l
 
 It does not provide authentication, RDF parsing, filesystem operations, SimplyFlow bindings, setup conventions, or UI state.
 
-The long-term workspace model is local-first. Applications should be able to open local sources, keep rendering and writing while offline, then sync with Solid sources when network and authorization return.
+The workspace model is local-first. Applications should be able to open local sources, keep rendering and writing while offline, then sync with Solid sources when network and authorization return.
 
 ## Exports
 
@@ -15,7 +15,6 @@ import {
   resource,
   graph,
   local,
-  mergeGraphDocuments,
   solid,
   SolidWorkspace,
   WorkspaceCollection
@@ -32,7 +31,6 @@ Default export:
   resource,
   graph,
   local,
-  mergeGraphDocuments,
   solid
 }
 ```
@@ -63,7 +61,7 @@ Container URLs are normalized to a trailing slash.
 
 ```js
 const ws = workspace({
-  solid,
+  solid: solidClient,
   sources: [
     solid.container('https://pod.example/contacts/', { id: 'contacts' })
   ],
@@ -79,12 +77,13 @@ const ws = workspace({
 
 Options:
 
-- `solid`, `solidApi`, or `client`: a Solid API client.
+- `solid`: a Solid API client.
+- `context`: an existing OLDM context. Otherwise the workspace creates one.
 - `sources`: source descriptors.
 - `resources`: logical resource descriptors from `resource()`.
 - `collections`: named collection descriptors.
 
-Source descriptors are the low-level replica contract. The local-first design adds logical resources so IndexedDB, memory, and file-backed replicas can participate in the same application resource as a Solid replica.
+Source descriptors are the low-level replica contract. Logical resources group replicas so IndexedDB, memory, and file-backed replicas can participate in the same application resource as a Solid replica.
 
 `graph.resource()` is the low-level contract for a graph resource source:
 
@@ -93,13 +92,11 @@ graph.resource({
   id: 'local-notes',
   url: 'memory://local-notes',
   async load() {
-    return oldmedGraphDocument
-  },
-  async save(document) {
-    return { ok: true, status: 'saved', document }
-  },
-  async turtle() {
     return turtleText
+  },
+  async save(turtleText) {
+    await storage.write(turtleText)
+    return { ok: true, status: 'saved' }
   }
 })
 ```
@@ -109,12 +106,7 @@ graph.resource({
 ```js
 const localNotes = local.memory('local-notes', {
   prefixes,
-  document: {
-    format: 'oldmed-graph',
-    version: 1,
-    prefixes,
-    subjects: []
-  }
+  turtle: ''
 })
 ```
 
@@ -128,19 +120,14 @@ const ws = workspace({
 await ws.load()
 ```
 
-`local.indexedDB()` stores an OLDMed graph document in browser IndexedDB:
+`local.indexedDB()` stores Turtle in browser IndexedDB:
 
 ```js
 const localNotes = local.indexedDB('margin-notes', {
   id: 'notes:local',
   key: 'notes',
   prefixes,
-  document: {
-    format: 'oldmed-graph',
-    version: 1,
-    prefixes,
-    subjects: []
-  }
+  turtle: ''
 })
 ```
 
@@ -148,9 +135,9 @@ Options:
 
 - `id`: stable source id. Defaults to `${name}:${key}`.
 - `key`: document key inside the object store. Defaults to `id` or `default`.
-- `store` or `storeName`: object store name. Defaults to `resources`.
+- `store`: object store name. Defaults to `resources`.
 - `databaseVersion`: IndexedDB schema version. Defaults to `1`.
-- `document`: initial graph document returned when the key is not stored yet.
+- `turtle`: initial Turtle text when the key has not been stored; defaults to empty text.
 - `prefixes`: prefixes used when exporting Turtle.
 
 The factory uses `globalThis.indexedDB` in the browser. Tests or non-browser callers may pass an `indexedDB` implementation explicitly.
@@ -202,12 +189,10 @@ ws.add(resource('notes', { local, remote }))
 ws.add([source, resource])
 ws.setClient(solidClient)
 ws.addSource(source)
-ws.dataset()
-ws.dataset('notes')
-await ws.sync({ from: ['local'], into: 'remote' })
+ws.context
+ws.graph('notes')
 await ws.sync('notes')
 
-ws.track(object, options)
 ws.sourceOf(object)
 ws.sourcesOf(object, predicate, value)
 
@@ -234,16 +219,40 @@ resource('notes', {
 })
 ```
 
-When a logical resource has a local replica, `dataset('notes')` reads from the local working copy. Opening the resource reconciles the reachable remote graph back into that local copy. Saving through `createIn('notes', object)` writes locally and marks the remote replica `sync-pending` when one is configured.
+When a logical resource has a local replica, `graph('notes')` reads from the local working copy. Opening the resource reconciles the reachable remote graph back into that local copy. Saving through `createIn('notes', object)` writes locally and marks the remote replica `sync-pending` when one is configured.
 
-Loaded objects are read from Metro-OLDM-shaped response data:
+Solid reads accept the native OLDM Graph returned by Metro-OLDM, or Turtle text.
+Custom sources use one contract: `load()` returns Turtle text, and `save(turtle)`
+commits it. Memory and IndexedDB sources implement the same contract. Storage
+completion and errors remain the adapter's responsibility.
 
-- `response.data.subjects`
-- `response.data.data`
-- `response.data.primary`
-- `response.data`
+`ws.context` owns the live source graphs. `ws.graph(sourceId)` returns a loaded
+source graph or `null`; a logical resource id selects its local replica when
+configured, otherwise its remote replica. Container children have separate
+resource graphs, available through `ws.context.graph(resourceUrl)`.
 
-`sourceOf()` returns the tracked source for an object. When a parsed OLDM context exposes `context.sources()`, `sourcesOf(object, predicate, value)` delegates fact-level source lookup to it.
+Collections return graph-local OLDM nodes. Context subject lookup provides the
+union across graphs; when editing a union view, explicitly select the owning
+graph with OLDM's graph option. Use `collection.update(node, changes)` for
+linked-object updates so referenced named subjects remain attached to the same
+graph. The supplied fields replace their prior values; omitted facts survive.
+
+`sourceOf()` and `sourcesOf(object, predicate, value)` use OLDM fact provenance
+and add workspace source metadata. A fact absent from the context has no source.
+Transport-owned objects are imported; their references are not editable handles
+into this workspace. `createIn()` likewise returns a new native graph node;
+retain that return value. An input without an id receives a stable UUID URN.
+
+Successful refresh and replica sync replace source graphs. Re-read a collection
+or graph before the next edit; saving an old node or a detached document object
+is rejected. A failed direct-resource read keeps the prior working graph.
+Queued saves capture their graph snapshot when admitted. Existing replica
+revision checks continue to protect newer admitted saves during open/sync.
+
+There is no serialized workspace document model or automatic migration.
+Arbitrary objects without an RDF identity are rejected as predicate values.
+Use OLDM BlankNodes for blank nodes and encode application literals explicitly.
+Workspace does not know editor or annotation formats.
 
 ## Status
 
@@ -283,7 +292,7 @@ Common source states:
 - `sync-pending`
 - `error`
 
-HTTP `401` and `403` are reported as `auth-needed`. Missing resources can open as empty graph documents. Network/client absence is reported as `offline`.
+HTTP `401` and `403` are reported as `auth-needed`. Solid resource reads returning `404` or `410` open as empty graphs. Network/client absence is reported as `offline`.
 
 Local writes can mark a remote source as pending:
 
@@ -293,44 +302,23 @@ await ws.createIn('notes', note)
 
 A result with `status: 'synced'` clears the pending marker. A newer local save admitted during sync instead returns `status: 'sync-pending'`; sync again to send that revision.
 
-## Open-World Dataset
+## Native graphs and replica sync
 
-`dataset()` returns a single graph document view over selected workspace sources:
+Read across resources with `ws.context.get(subjectId)` or `ws.context.subjects`.
+Read and edit a particular source with `ws.graph(sourceId)`. For a logical
+resource, `ws.graph(resourceId)` selects its local working copy when configured.
 
-```js
-const graph = ws.dataset({ sources: ['local', 'remote'] })
-const notes = ws.dataset('notes')
-```
+`await ws.sync('notes')` reads the current remote graph, reconciles it with the
+local graph, commits locally, then writes remotely. The result's `graph` is the
+detached native graph used for that operation; obtain fresh working nodes from
+the workspace after sync. Internal graph snapshots protect admitted saves and
+in-flight sync; they are not a separate application data format.
 
-The dataset uses open-world additive merging. Subjects with different ids are preserved. Subjects with the same id are combined by preserving known facts; conflicting predicate values become multi-values instead of being treated as deletion or replacement.
-
-`mergeGraphDocuments()` exposes the same pure merge primitive for callers that already have graph documents:
-
-```js
-const graph = mergeGraphDocuments([
-  localDocument,
-  remoteDocument
-])
-```
-
-For logical resources, `sync()` reconciles the local working copy and current remote graph, commits the merged document locally, then writes it to the remote replica:
-
-```js
-await ws.sync('notes')
-```
-
-The source-to-source form projects a dataset into a writable resource source:
-
-```js
-await ws.sync({
-  from: ['local'],
-  into: 'remote'
-})
-```
-
-The source-to-source form is additive. Logical-resource sync instead honors `lm:deleted` on original subjects and `dcterms:modified` for explicitly declared `scalarPredicates`. Other facts remain additive. See [Replica save contract](../../../docs/DESIGN_NOTES/REPLICA_SAVE_CONTRACT.md) for ordering, failure, timestamp, and concurrency limits.
-
-For PWA-style apps, local replicas should be first-class working copies rather than opaque caches of Solid resources. Remote source failures should become source status such as `offline` or `auth-needed`, while the workspace continues serving the local dataset.
+Logical-resource sync honors `lm:deleted` on original subjects and
+`dcterms:modified` for explicitly declared `scalarPredicates`. Unknown facts
+remain additive. See [Replica save contract](../../../docs/DESIGN_NOTES/REPLICA_SAVE_CONTRACT.md)
+for ordering, failure, timestamp, and concurrency limits. A remote failure leaves
+a useful local copy and pending status.
 
 ## Collections
 
@@ -349,11 +337,17 @@ await contacts.saveAll()
 A collection can filter by:
 
 - `sources`: source ids.
-- `shape.class`: matching `a` values.
+- `shape.for`: matching `a` values.
 
-`create(object)` applies shape defaults and validates the object. By default it tracks the object without saving immediately. Use `contacts.save(object)` or `contacts.saveAll()` to write.
+`create(object)` applies shape defaults and validates the object. By default it imports the object into the source graph without saving immediately; use the returned node for later edits. Pass the returned node to `contacts.save(node)`, or use `contacts.saveAll()`, to write.
 
 ## Save status
+
+A subject save writes its complete owning resource graph as Turtle, retaining
+other subjects and facts in that graph. An HTTP DELETE on a direct Solid source
+still deletes the resource. Logical-resource deletion instead persists the
+existing `lm:deleted` marker on the subject.
+
 
 `save()` returns a status object:
 
@@ -379,4 +373,4 @@ Common statuses:
 - `read_only`
 - `error`
 
-`saveAll()` returns all statuses when every save succeeds. If any save fails, it throws an error with `error.statuses` and `error.failures`.
+`saveAll()` returns all statuses when every save succeeds. If any save fails, it throws an error with `error.statuses` and `error.cause.failures`.

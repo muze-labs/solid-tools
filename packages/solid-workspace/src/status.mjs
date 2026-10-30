@@ -1,4 +1,5 @@
 import oldm from '@muze-nl/oldm'
+import { resourceSources } from './sources.mjs'
 
 export function updateRecordStatus(record, status) {
   record.status = status.status
@@ -31,8 +32,8 @@ export function sourceStatus(source, status = {}) {
   }
 }
 
-export function workspaceState(currentWorkspace) {
-  const states = Object.values(currentWorkspace.status.sources).map(status => status.state)
+export function workspaceState(status) {
+  const states = Object.values(status.sources).map(status => status.state)
 
   if (states.length === 0) {
     return 'idle'
@@ -49,9 +50,9 @@ export function workspaceState(currentWorkspace) {
   return 'error'
 }
 
-export function resourceState(currentWorkspace, logicalResource) {
+export function resourceState(status, logicalResource) {
   const states = resourceSources(logicalResource)
-    .map(source => currentWorkspace.status.sources[source.id]?.state)
+    .map(source => status.sources[source.id]?.state)
     .filter(Boolean)
 
   if (states.length === 0) {
@@ -91,6 +92,80 @@ export function errorStatus(error) {
   return error?.cause?.status
 }
 
-function resourceSources(logicalResource) {
-  return [logicalResource.local, logicalResource.remote].filter(Boolean)
+export class WorkspaceStatus {
+  constructor() {
+    this.value = { state: 'idle', error: null, sources: {}, resources: {} }
+  }
+
+  source(descriptor, status = {}) {
+    const source = descriptor?.parent ?? descriptor
+
+    if (!source?.id) {
+      return null
+    }
+
+    const current = this.value?.sources?.[source.id] ?? {}
+    const next = sourceStatus(source, {
+      ...current,
+      ...status
+    })
+    this.value.sources[source.id] = next
+    return next
+  }
+
+  resource(logicalResource, status = {}) {
+    if (!logicalResource?.id) {
+      return null
+    }
+
+    const current = this.value?.resources?.[logicalResource.id] ?? {}
+    const next = {
+      id: logicalResource.id,
+      type: logicalResource.type ?? 'replicated-resource',
+      local: logicalResource.local?.id ?? null,
+      remote: logicalResource.remote?.id ?? null,
+      state: status.state ?? current.state ?? 'idle',
+      error: Object.hasOwn(status, 'error') ? status.error : current.error ?? null
+    }
+    this.value.resources[logicalResource.id] = next
+    return next
+  }
+
+  pending(from, targets) {
+    for (const source of targets) {
+      const current = this.value.sources[source.id] ?? sourceStatus(source, { state: 'idle' })
+      let state = 'sync-pending'
+      if (current.state === 'opening' || current.state === 'syncing') {
+        state = current.state
+      }
+
+      this.source(source, {
+        ...current,
+        state,
+        syncPending: true,
+        pendingFrom: [...new Set([
+          ...oldm.many(current.pendingFrom),
+          ...oldm.many(from)
+        ])]
+      })
+    }
+
+    return this
+  }
+
+  clearPending(source) {
+    const current = this.value.sources[source.id] ?? sourceStatus(source, { state: 'idle' })
+    let state = current.state
+    if (current.state === 'sync-pending') {
+      state = 'ready'
+    }
+
+    this.source(source, {
+      ...current,
+      state,
+      syncPending: false,
+      pendingFrom: []
+    })
+    return this
+  }
 }

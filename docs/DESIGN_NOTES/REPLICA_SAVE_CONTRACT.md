@@ -40,8 +40,9 @@ subject alone is never a deletion or restoration. Retained domain facts are
 available for undo but ignored in normal collection views while deleted.
 
 Deletion does not infer ownership of linked subjects or garbage-collect them.
-The source-to-source import API remains additive. Timestamp and conflict rules
-are workspace conventions, not requirements of the ontology or Solid protocol.
+The former source-to-source import API has been removed; sync operates on
+logical resources. Timestamp and conflict rules are workspace conventions, not
+requirements of the ontology or Solid protocol.
 
 `open(resource)`, saves, and `sync(resource)` sequence I/O within one workspace
 resource. A save snapshots its data when admitted and increments a revision.
@@ -70,5 +71,6 @@ Limits: ordering is within one workspace instance, not across browser tabs;
 remote writes are not yet guarded by ETags; no CRDT or blank-node identity
 reconciliation across independently authored graphs is claimed. Real-Pod login,
 permissions, conditional writes, and cross-device concurrency remain unvalidated.
-The larger move from graph-document compatibility to one OLDM context remains
-separate work in the refactor guide.
+The one-context refactor now uses native graph snapshots and Turtle adapters;
+graph-document compatibility has been removed. See the refactor guide for the
+remaining OLDM graph-removal limitation and deferred workspace manifests.

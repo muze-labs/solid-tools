@@ -1,6 +1,7 @@
 import oldm from '@muze-nl/oldm'
+import { writeSubjectToGraph } from './graphs.mjs'
 import { isDeleted } from './replicas.mjs'
-import { from, matchIf } from '@muze-nl/jaqt'
+import { from } from '@muze-nl/jaqt'
 import * as assert from '@muze-nl/assert'
 import { Optional } from '@muze-nl/assert'
 
@@ -22,23 +23,16 @@ export class WorkspaceCollection {
   }
 
   list() {
-    const sourceIds = oldm.many(this.descriptor.sources)
-      .map(source => this.workspace.sourcePatterns.get(source) ?? source)
     const className = this.descriptor.shape?.for
-
-    return from(this.workspace.records)
-      .where(record => !isDeleted(record.object))
-      .where({
-        deleted: false,
-        sourceId: matchIf(sourceIds.length > 0, sourceIds),
-        object: matchIf(className, { a: className })
-      })
-      .select(record => record.object)
+    return from(this.workspace.sourceSubjects(this.descriptor.sources))
+      .where(object => !isDeleted(object))
+      .where(object => !this.workspace.recordFor(object)?.deleted)
+      .where(object => !className || oldm.many(object.a).includes(className))
       .toArray()
   }
 
   get(id) {
-    return this.list().find(object => object.id === id || object['@id'] === id) ?? null
+    return this.list().find(object => object.id === id) ?? null
   }
 
   async create(object = {}, options = {}) {
@@ -68,10 +62,12 @@ export class WorkspaceCollection {
     if (changes.id != null && changes.id !== object.id) {
       throw new Error('solid-workspace: an update cannot change subject identity')
     }
-    for (const [key, value] of Object.entries(changes)) {
-      if (key !== 'id') object[key] = value
+    if (!this.workspace.recordFor(object)) {
+      throw new Error('solid-workspace: cannot update a detached subject')
     }
-    return object
+    return writeSubjectToGraph({
+      graph: object.graph, subject: changes, id: object.id, replace: true
+    })
   }
 
   delete(object, options = {}) {
@@ -83,15 +79,9 @@ export class WorkspaceCollection {
   }
 
   saveAll() {
-    const sourceIds = oldm.many(this.descriptor.sources)
-      .map(source => this.workspace.sourcePatterns.get(source) ?? source)
     const className = this.descriptor.shape?.for
-
-    return this.workspace.saveAll(from(this.workspace.records)
-      .where({
-        sourceId: matchIf(sourceIds.length > 0, sourceIds),
-        object: matchIf(className, { a: className })
-      })
-      .toArray())
+    const subjects = this.workspace.sourceSubjects(this.descriptor.sources)
+      .filter(object => !className || oldm.many(object.a).includes(className))
+    return this.workspace.saveAll(subjects)
   }
 }

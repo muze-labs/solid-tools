@@ -1,5 +1,5 @@
 import oldm from '@muze-nl/oldm'
-import { cloneGraphDocument, mergeGraphDocuments, valueKey } from './graph-document.mjs'
+import { copyGraph, mergeGraphs, valueKey } from './graphs.mjs'
 
 const modified = 'http://purl.org/dc/terms/modified'
 const deleted = 'https://purl.org/pdsinterop/link-metadata#deleted'
@@ -40,12 +40,12 @@ export function markDeleted(subject, now = new Date().toISOString()) {
 
 // Replica policy is separate from additive graph import. The caller declares
 // scalar predicates; this module has no annotation or editor vocabulary.
-export function mergeReplicas(documents, { scalarPredicates = [] } = {}) {
-  const copies = documents.map(cloneGraphDocument)
+export function mergeReplicas(graphs, { scalarPredicates = [] } = {}) {
+  const copies = graphs.map(graph => copyGraph(graph))
   const versions = new Map()
-  for (const document of copies) {
-    const context = oldm.context({ prefixes: document.prefixes })
-    visit(document.subjects, subject => {
+  for (const graph of copies) {
+    const context = graph
+    visit(graph.subjects, subject => {
       if (!subject.id) return
       const candidates = versions.get(subject.id) ?? []
       candidates.push({ subject, context: subject.graph ?? context })
@@ -73,7 +73,7 @@ export function mergeReplicas(documents, { scalarPredicates = [] } = {}) {
       }
     }
   }
-  return mergeGraphDocuments(copies)
+  return mergeGraphs(copies)
 }
 
 function values(value) {

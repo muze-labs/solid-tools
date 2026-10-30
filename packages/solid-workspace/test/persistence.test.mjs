@@ -1,8 +1,10 @@
+import { mergeGraphs } from '../src/graphs.mjs'
+import { graphFixture } from './fixtures.mjs'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import oldm from '@muze-nl/oldm'
 import { BlankNode, Collection } from '@muze-nl/oldm-core'
-import { local, resource, solid, workspace, mergeGraphDocuments } from '../src/index.mjs'
+import { local, resource, solid, workspace } from '../src/index.mjs'
 import metro from '@muze-nl/metro'
 import { solidApi } from '../../metro-solid/src/index.mjs'
 
@@ -15,10 +17,10 @@ test('local Turtle round trips preserve shared blank nodes, cycles, lists and li
   ` })
   const ws = workspace({ resources: [resource('notes', { local: source })] })
   await ws.open({ throwOnError: true })
-  const note = ws.records.find(record => record.object.id === 'https://example.test/note').object
+  const note = ws.graph('notes').get('https://example.test/note')
   note.ex$edited = 'yes'
   assert.equal((await ws.save(note)).ok, true)
-  const graph = oldm.context().parse(await source.turtle(), 'https://example.test/notes', 'text/turtle')
+  const graph = oldm.context().parse(await source.load(), 'https://example.test/notes', 'text/turtle')
   const restored = graph.subjects[note.id]
   assert.equal(restored.a, 'https://example.test/Note')
   assert.ok(restored.ex$extra instanceof BlankNode)
@@ -75,7 +77,7 @@ test('merging linked subjects preserves incoming unknown facts and cycles', () =
   left.schema$comment.schema$about = left
   const right = { id: left.id, schema$comment: { id: 'urn:body:1', schema$description: 'unknown fact' } }
   right.schema$comment.schema$about = right
-  const result = mergeGraphDocuments([[left], [right]])
+  const result = mergeGraphs([graphFixture([left]), graphFixture([right])])
   assert.equal(result.subjects[left.id].schema$comment.schema$description, 'unknown fact')
   assert.equal(result.subjects[left.id].schema$comment.schema$about, result.subjects[left.id])
 })

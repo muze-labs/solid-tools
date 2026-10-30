@@ -59,7 +59,7 @@ for (const contact of ws.collections.contacts.list()) {
 }
 ```
 
-Container sources are listed with the Solid API `contains()` helper. Each contained resource is then loaded through Solid API and parsed by Metro-OLDM.
+Container sources are listed with the Solid API `contains()` helper. Each contained resource is then loaded through Solid API and imported into a graph in `ws.context`.
 
 ## 5. Create and save
 
@@ -72,12 +72,14 @@ const ada = await ws.collections.contacts.create({
 await ws.collections.contacts.save(ada)
 ```
 
-`create()` applies shape defaults and validates the object. Saving a new object to a container uses the Solid API container `post()`.
+`create()` applies shape defaults, validates the object, and returns a native node in the working graph. Keep this returned node for subsequent updates. Saving a new object to a container uses the Solid API `postToContainer()` helper.
 
 ## 6. Update and delete
 
 ```js
-ada.schema$email = ['ada@example.test']
+ws.collections.contacts.update(ada, {
+  schema$email: ['ada@example.test']
+})
 
 const saved = await ws.collections.contacts.save(ada)
 console.log(saved.status)
@@ -86,4 +88,10 @@ const removed = await ws.collections.contacts.delete(ada)
 console.log(removed.status)
 ```
 
-`save()` and `delete()` return per-resource status objects. `saveAll()` throws when any save fails and includes `error.statuses` plus `error.failures`.
+`save()` and `delete()` return per-resource status objects. `saveAll()` throws when any save fails and includes `error.statuses` plus `error.cause.failures`.
+
+Saving writes the complete source resource, including unrelated facts. After a
+successful reload or replica sync, read the node again from the collection
+before editing. `ws.context` provides cross-resource OLDM lookup and provenance;
+`ws.context.graph(resourceUrl)` selects an individual source graph. Local and
+custom storage adapters load and save Turtle.

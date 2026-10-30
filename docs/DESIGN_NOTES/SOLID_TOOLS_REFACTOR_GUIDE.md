@@ -107,13 +107,8 @@ Primary call sites:
 - `@muze-labs/simplysolid`;
 - examples and tutorials.
 
-During migration, accepting the neutral names is enough:
-
-```js
-const solid = options.solid ?? options.solidApi ?? options.client
-```
-
-The public docs should prefer `solidApi`.
+Solid Workspace and SimplySolid now accept `options.solid` only; migration
+aliases have been removed. Construct that client with `solidApi`.
 
 Exit criteria:
 
@@ -141,8 +136,8 @@ The runtime may still expose OLDMed objects after parsing, but persistence stays
 Exit criteria:
 
 - no new persisted `oldmed-graph` format is introduced;
-- existing `oldmed-graph` support is isolated as migration compatibility if needed;
-- all resource sources can expose both Turtle text and an OLDM graph view.
+- no `oldmed-graph` persistence or migration compatibility remains;
+- custom adapters exchange Turtle; the workspace exposes native OLDM graphs.
 
 ## Step 4: give Solid Workspace one OLDM context
 
@@ -155,8 +150,8 @@ Solid Workspace owns source lifecycle:
 - local and remote replicas;
 - availability status;
 - source-specific save state;
-- source-to-source sync policy;
-- recursive workspace manifest loading.
+- logical-resource replica sync policy;
+- recursive workspace manifest loading (planned, not implemented).
 
 OLDM owns runtime graph mechanics:
 
@@ -175,7 +170,89 @@ Exit criteria:
 - app code reads through workspace collections or `context.subjects`, not through a
   second graph model.
 
+### Implementation evidence — 2026-10-30
+
+The native-graph refactor gives each workspace one live OLDM context.
+Source graphs, collection nodes, and fact provenance share that context.
+Transport documents are imported; records hold persistence metadata and node
+references rather than a second working graph. Direct saves serialize the whole
+resource graph. Adapters exchange Turtle and replica operations use detached native graphs.
+`dataset()`, `mergeGraphDocuments()`, and graph-document conversion are removed.
+Companion SimplySolid and margin-notes changes adapt to this API; no backwards
+compatibility is retained. Those changes are reviewed and committed separately.
+
+Contract evidence is in `solid-workspace/test/context.test.mjs`. Margin notes'
+mounted browser flow exposed and now covers a linked-body edit being detached
+from its graph during update. Its tests pass with packed local workspace and
+SimplySolid builds. The app's duplicate document conversion, local migrations, and custom-store
+fallback have been removed. Host stores now use the same workspace path.
+Manifests remain outside the current application slice.
+
+OLDM currently exposes replacement through `addGraph`, but no graph removal API.
+Removed container resources and provisional creation URLs therefore leave empty
+graph slots in the context; they contribute no facts or workspace collection
+entries. A future graph-lifecycle API belongs in OLDM, not a workspace-owned
+replacement index. No OLDM internals are patched here.
+
+### TODO: use URIs for source and logical-resource identity — 2026-10-30
+
+- [ ] Replace separate source IDs and logical-resource IDs with URI-based
+  identity, updating Solid Workspace, SimplySolid, and margin notes together.
+
+Use a source's URI for lookup, status, provenance, and persistence bookkeeping.
+The grouping of local and remote replicas should itself have a URI. Names such
+as `notes` remain application bindings, not another identity for the source or
+logical resource. IndexedDB database/store/key values remain storage parameters.
+
+When no URI exists yet, assign one when identity is needed, for example a
+`urn:uuid:…`. Generate a logical-resource URI once and persist it across reopen;
+attaching a remote HTTP replica must not change that identity. A source created
+through POST may receive its final URI from the server's `Location` response.
+Model that as creation state, without retaining a second permanent ID field.
+
+Before implementation, specify provisional-source registration and URI assignment
+so graph ownership, pending operations, and status stay consistent. Cover reopen,
+remote attachment, and POST-assigned locations with library and app tests.
+This item records the agreed direction only; implementation is deferred.
+
+### Implementation boundaries — 2026-10-30
+
+The workspace implementation is split by responsibility. The public workspace
+composes these owners, dispatches source/resource operations, and coordinates
+container loading. It no longer holds their internal maps or transport rules.
+
+| Module | Responsibility |
+| --- | --- |
+| `sources.mjs` | Source factories, registration, logical-resource/replica associations, and reference lookup. No graph loading or status changes. |
+| `working-graphs.mjs` | Installed OLDM graphs, source metadata, subject ownership, provenance lookup, snapshots, and relocation after POST. |
+| `source-io.mjs` | Adapter and Solid reads/writes, request headers, missing-resource handling, and failed-write responses. No graph publication or sync policy. |
+| `writes.mjs` | Create/save/delete admission, validation, persistence outcomes, and deletion rollback. |
+| `replica-sync.mjs` | Replica open/sync lifecycle: read, reconcile, commit locally, write remotely, and publish only while current. The pure merge policy remains in `replicas.mjs`. |
+| `operations.mjs` | Per-resource execution queues and admitted-save revisions, shared by writes and replica operations. |
+| `status.mjs` | Source/resource status transitions, pending markers, and status/error classification. |
+
+The shared operation owner preserves the timing contract: a save advances the
+revision and captures its native graph snapshot before waiting in the queue.
+Replica operations check that revision after I/O before publishing. Failure must
+not poison the queue or clear a pending newer save. Graph installation and source
+metadata indexes have one owner; storage I/O cannot update them independently.
+The existing custom adapter context is forwarded by `source-io.mjs`, but that
+module does not inspect or mutate the workspace through it.
+
+This module split preserves the package exports and documented API of the
+native-graph refactor above. Internal record
+arrays and lookup maps are no longer exposed on the workspace. Existing tests
+read native graphs and provenance rather than asserting that metadata layout.
+Source identity still uses the current IDs; the URI TODO above is deferred.
+
+Validation uses the existing persistence, replica interleaving, and failure
+contracts, plus the margin-notes mounted browser suite with packed local builds.
+The module dependency graph has no import cycles; local adapters now import source
+factories directly instead of importing the workspace runtime.
+
 ## Step 5: keep workspace manifests in Solid Workspace
+
+Status: deferred; the following describes the intended design, not a shipped API.
 
 OLDM must remain vocabulary-agnostic. It should not know that any linked-data term
 means "include this resource".
@@ -237,7 +314,7 @@ Likely direction:
 Exit criteria:
 
 - public docs do not teach a serialized workspace graph-document format;
-- merge helpers are either internal implementation details or compatibility shims;
+- merge helpers are internal implementation details; no compatibility shims remain;
 - app examples talk about Turtle resources and workspace manifests.
 
 ## Step 8: move collection convenience upward where possible

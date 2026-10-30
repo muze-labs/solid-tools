@@ -84,7 +84,7 @@ const contactsApp = app({
   async start() {
     this.solid.install(this)
     await this.solid.setup()
-    await this.solid.sync()
+    await this.solid.open()
     this.data.contacts = this.solid.data.contacts.items
   },
   commands: {
@@ -118,7 +118,7 @@ Setup status is also exposed through `app.data.solid.setup` for normal SimplyFlo
 ## 6. Read and write through handles
 
 ```js
-await contactsApp.solid.data.contacts.sync()
+await contactsApp.solid.data.contacts.open()
 
 const contacts = contactsApp.solid.data.contacts.list()
 const ada = contactsApp.solid.data.contacts.get('https://pod.example/storage/contacts/ada.ttl#me')

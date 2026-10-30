@@ -1,3 +1,4 @@
+import { parseGraph } from '../../solid-workspace/src/graphs.mjs'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { simplySolid } from '../src/index.mjs'
@@ -35,7 +36,7 @@ test('failed replica sync is pending rather than a successful service sync', asy
   assert.equal(service.status.state, 'sync-pending')
   assert.equal(service.status.error, failure)
   assert.equal(service.status.lastSync, undefined)
-  assert.equal(String((await memory.load()).subjects['urn:note:1'].schema$text), 'local')
+  assert.equal(String(parseGraph(await memory.load(), memory).subjects['urn:note:1'].schema$text), 'local')
 })
 
 test('a failed delete can be retried by id', async () => {
@@ -61,4 +62,28 @@ test('a failed local open rejects instead of presenting an empty ready service',
   } } } })
   await assert.rejects(service.open(), error => error === failure)
   assert.equal(service.status.state, 'error')
+})
+
+
+test('saving an edited native node preserves failures and permits retry by id', async () => {
+  let fail = false
+  const memory = local.memory('notes')
+  const service = simplySolid({ data: { notes: { local: {
+    ...memory,
+    async save(turtle) {
+      if (fail) {
+        throw new Error('disk full')
+      }
+      return memory.save(turtle)
+    }
+  } } } })
+  await service.open()
+  const note = await service.data.notes.create({ id: 'urn:note', schema$text: 'before' })
+  note.graph.set(note, 'schema$text', 'edited')
+  fail = true
+  await assert.rejects(service.data.notes.save(note.id), /disk full/)
+  assert.equal(service.data.notes.status.state, 'error')
+  fail = false
+  assert.equal((await service.data.notes.save(note.id)).ok, true)
+  assert.equal(String(parseGraph(await memory.load(), memory).get(note.id).schema$text), 'edited')
 })

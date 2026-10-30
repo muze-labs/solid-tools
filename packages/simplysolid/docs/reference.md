@@ -37,8 +37,9 @@ const solidService = simplySolid({
 
 Config:
 
-- `solid`, `solidApi`, or `client`: a Solid API client. Optional for local-first configurations that can start from local replicas.
+- `solid`: a Solid API client. Optional for local-first configurations that can start from local replicas.
 - `workspace`: an existing Solid Workspace instance.
+- `context`: an OLDM context passed to a newly created workspace. Ignored when `workspace` is supplied.
 - `storage`: storage root URL or storage record.
 - `localFirst`: enables local-first defaults for resource descriptors.
 - `app.id`: stable app identifier. Defaults to the current page URL without the hash when available.
@@ -48,7 +49,7 @@ Config:
 - `profile`: optional current profile data.
 - `sources`: explicit Solid Workspace source descriptors.
 - `resources`: explicit Solid Workspace logical resource descriptors.
-- `data` or `collections`: named collection descriptors.
+- `data`: named collection descriptors.
 
 ## Collection descriptors
 
@@ -96,11 +97,11 @@ await service.data.notes.create(note)
 Local replica options:
 
 - `indexedDB`: database name.
-- `database`, `databaseName`, or `name`: alternate database name fields.
+- `indexedDBFactory`: optional IndexedDB implementation for tests.
 - `key`: document key inside the local object store.
-- `store` or `storeName`: object store name. Defaults to `resources`.
+- `store`: object store name. Defaults to `resources`.
 - `id`: local source id. Defaults to `${resourceId}:local`.
-- `document`: initial OLDMed graph document.
+- `turtle`: initial Turtle text, defaulting to empty text.
 - `prefixes`: prefixes used when exporting Turtle.
 
 After Solid discovery or login, attach a remote replica:
@@ -129,10 +130,8 @@ const service = simplySolid(config)
 
 service.install(app)
 await service.open()
-await service.sync()
-service.dataset()
-service.dataset('notes')
-await service.syncResources({ from: ['local'], into: 'remote' })
+service.workspace.context
+service.workspace.graph('notes')
 await service.sync('notes')
 await service.connect({ solid, resources })
 await service.checkSetup()
@@ -149,11 +148,11 @@ service.data.contacts
 
 `open()` opens the workspace tolerantly and refreshes collection handles. This is the preferred local-first startup method.
 
-`sync()` with no arguments keeps the older load-and-refresh behavior, now using tolerant workspace open. `sync('notes')` delegates to logical resource sync.
+`sync('notes')` reconciles that logical resource's local and remote replicas and
+refreshes the collection handles. Use `open()` to reload resources. There is no
+sync-as-reload overload or document/dataset facade. Access native OLDM graphs
+through `service.workspace.context` and `service.workspace.graph(resourceId)`.
 
-`dataset()` returns the Solid Workspace open-world graph document for selected sources or logical resources.
-
-`syncResources()` delegates to Solid Workspace resource sync, then refreshes collection handles. The first sync strategy is additive: it preserves known subjects and facts, but does not treat missing facts as deletions.
 
 `connect()` sets or replaces the Solid API client, attaches remote replicas for named logical resources, opens them by default, and refreshes collection handles.
 
@@ -266,16 +265,24 @@ Setup states:
 ```js
 const contacts = app.solid.data.contacts
 
-await contacts.sync()
+await contacts.open()
 contacts.list()
 contacts.get(id)
 await contacts.create(data)
 await contacts.update(idOrObject, changes)
 await contacts.delete(idOrObject)
+await contacts.save(idOrObject)
 await contacts.saveAll()
 ```
 
 `create()`, `update()`, and `delete()` save by default. Pass `{ save: false }` to stage locally.
+
+`create()` and `update()` return native nodes owned by the workspace graph.
+`save(idOrObject, options)` persists an edited native node and returns the save
+status. It rejects failed persistence, retaining the result in `status.lastSave`.
+Pass an id to resolve the current node, or use a node returned by this collection.
+After reload or replica sync, read nodes again before editing; stale handles are
+rejected. Saving a node writes its complete owning resource graph.
 
 Each collection handle exposes:
 

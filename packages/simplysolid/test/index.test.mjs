@@ -1,7 +1,8 @@
+import { parseGraph } from '../../solid-workspace/src/graphs.mjs'
+import { graphFixture } from '../../solid-workspace/test/fixtures.mjs'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { field, Optional, shape } from '@muze-labs/oldm-shape'
-import { solid } from '@muze-labs/solid-workspace'
 import { packageName, simplySolid } from '../src/index.mjs'
 
 test('simplysolid exports package name', () => {
@@ -38,15 +39,15 @@ test('simplySolid exposes app.solid status and collection handles', async () => 
   const app = { data: {} }
 
   service.install(app)
-  await app.solid.sync()
+  await app.solid.open()
 
   assert.equal(app.solid, service)
   assert.equal(app.data.solid, service.status)
   assert.equal(service.status.state, 'ready')
   assert.equal(service.status.setup.appStorage, 'https://pod.example/storage/apps/app/')
   assert.equal(service.status.setup.settingsUrl, 'https://pod.example/storage/apps/app/settings.ttl')
-  assert.deepEqual(service.data.contacts.list(), [ada])
-  assert.equal(service.data.contacts.get(ada.id), ada)
+  assertGraphEqual(service.data.contacts.list(), graphValue([ada]))
+  assert.equal(service.data.contacts.get(ada.id), service.workspace.context.graph('https://pod.example/storage/contacts/ada.ttl').get(ada.id))
   assert.deepEqual(client.calls, [
     ['container.contains', 'https://pod.example/storage/contacts/'],
     ['resource.get', 'https://pod.example/storage/contacts/ada.ttl']
@@ -182,52 +183,19 @@ test('collection create, update, and delete delegate through solid-workspace', a
 
   assert.equal(Object.hasOwn(ada, 'schema$email'), false)
   assert.equal(updated.schema$name, 'Ada Lovelace')
+  const initial = parseGraph(client.calls[0][2], { url: 'https://pod.example/storage/contacts/' })
+  const edited = parseGraph(client.calls[1][2], { url: 'https://pod.example/storage/contacts/' })
+  assert.equal(String(initial.subjects[ada.id].schema$name), 'Ada')
+  assert.equal(String(edited.subjects[ada.id].schema$name), 'Ada Lovelace')
   assert.equal(deleted.status, 'deleted')
   assert.equal(service.data.contacts.status.state, 'ready')
   assert.deepEqual(client.calls, [
-    ['container.post', 'https://pod.example/storage/contacts/', ada],
-    ['resource.put', 'https://pod.example/storage/contacts/urn%3Auuid%3Aada.ttl', ada],
+    ['container.post', 'https://pod.example/storage/contacts/', client.calls[0][2]],
+    ['resource.put', 'https://pod.example/storage/contacts/urn%3Auuid%3Aada.ttl', client.calls[1][2]],
     ['resource.delete', 'https://pod.example/storage/contacts/urn%3Auuid%3Aada.ttl']
   ])
 })
 
-test('dataset and syncResources delegate open-world resource sync through the workspace', async () => {
-  const local = {
-    id: 'urn:contact:local',
-    a: 'https://schema.org/Person',
-    schema$name: 'Local'
-  }
-  const remote = {
-    id: 'urn:contact:remote',
-    a: 'https://schema.org/Person',
-    schema$name: 'Remote'
-  }
-  const client = createSolidDouble({
-    resources: {
-      'https://pod.example/storage/local.ttl': graphDocument([local]),
-      'https://pod.example/storage/remote.ttl': graphDocument([remote])
-    }
-  })
-  const service = simplySolid({
-    solid: client,
-    storage: 'https://pod.example/storage/',
-    sources: [
-      solid.resource('https://pod.example/storage/local.ttl', { id: 'local' }),
-      solid.resource('https://pod.example/storage/remote.ttl', { id: 'remote' })
-    ]
-  })
-
-  await service.sync()
-  const dataset = service.dataset()
-  const status = await service.syncResources({
-    from: ['local'],
-    into: 'remote'
-  })
-
-  assert.equal(dataset.data.length, 2)
-  assert.equal(status.status, 'synced')
-  assert.deepEqual(status.document.data, [remote, local])
-})
 
 test('local-first collections open and persist through IndexedDB as Turtle without Solid', async () => {
   const indexedDB = createIndexedDBDouble()
@@ -241,9 +209,9 @@ test('local-first collections open and persist through IndexedDB as Turtle witho
       contacts: {
         kind: 'resource',
         local: {
-          database: 'simplysolid-test',
+          indexedDB: 'simplysolid-test',
           key: 'contacts',
-          indexedDB
+          indexedDBFactory: indexedDB
         },
         shape: ContactShape
       }
@@ -262,7 +230,7 @@ test('local-first collections open and persist through IndexedDB as Turtle witho
     schema$name: 'Ada'
   }
 
-  assert.deepEqual(service.data.contacts.list(), [ada])
+  assertGraphEqual(service.data.contacts.list(), graphValue([ada]))
   assert.equal(service.workspace.status.resources.contacts.state, 'ready')
 
   const next = simplySolid({
@@ -274,9 +242,9 @@ test('local-first collections open and persist through IndexedDB as Turtle witho
       contacts: {
         kind: 'resource',
         local: {
-          database: 'simplysolid-test',
+          indexedDB: 'simplysolid-test',
           key: 'contacts',
-          indexedDB
+          indexedDBFactory: indexedDB
         },
         shape: ContactShape
       }
@@ -286,7 +254,7 @@ test('local-first collections open and persist through IndexedDB as Turtle witho
   await next.open()
 
   assertGraphEqual(next.data.contacts.list(), [persistedAda])
-  assertGraphEqual(next.dataset('contacts').data, [persistedAda])
+  assertGraphEqual(next.workspace.graph('contacts').data, [persistedAda])
   assert.equal(next.data.contacts.list()[0].schema$name instanceof String, true)
   assert.equal(next.data.contacts.list()[0].schema$name.type, 'http://www.w3.org/2001/XMLSchema#string')
 })
@@ -306,7 +274,7 @@ test('connect adds a remote replica and syncs a local-first collection', async (
   }
   const client = createSolidDouble({
     resources: {
-      'https://pod.example/storage/contacts.ttl': graphDocument([remoteContact])
+      'https://pod.example/storage/contacts.ttl': graphFixture([remoteContact])
     }
   })
   const service = simplySolid({
@@ -315,9 +283,9 @@ test('connect adds a remote replica and syncs a local-first collection', async (
       contacts: {
         kind: 'resource',
         local: {
-          database: 'simplysolid-test-connect',
+          indexedDB: 'simplysolid-test-connect',
           key: 'contacts',
-          indexedDB
+          indexedDBFactory: indexedDB
         },
         shape: ContactShape
       }
@@ -337,7 +305,7 @@ test('connect adds a remote replica and syncs a local-first collection', async (
   const status = await service.sync('contacts')
 
   assert.equal(status.status, 'synced')
-  assertGraphEqual(status.document.data, [remoteContact, localContact])
+  assertGraphEqual(status.graph.data, [remoteContact, localContact])
   assertGraphEqual(service.data.contacts.list(), [remoteContact, localContact])
   assert.equal(service.status.resources.contacts.state, 'ready')
   assert.deepEqual(client.calls, [
@@ -392,14 +360,14 @@ test('collection handles can create locally before saveAll', async () => {
     schema$name: 'Ada'
   }, { save: false })
 
-  assert.deepEqual(service.data.contacts.list(), [ada])
+  assertGraphEqual(service.data.contacts.list(), graphValue([ada]))
   assert.deepEqual(client.calls, [])
 
   const statuses = await service.data.contacts.saveAll()
 
   assert.equal(statuses[0].status, 'created')
   assert.deepEqual(client.calls, [
-    ['container.post', 'https://pod.example/storage/contacts/', ada]
+    ['container.post', 'https://pod.example/storage/contacts/', client.calls[0][2]]
   ])
 })
 
@@ -573,7 +541,8 @@ function createSolidDouble({
     },
     async postToContainer(url, body) {
       calls.push(['container.post', url, body])
-      const location = `${url}${encodeURIComponent(body.id ?? String(calls.length))}.ttl`
+      const parsed = parseGraph(body, { url })
+      const location = `${url}${encodeURIComponent(parsed.data[0].id)}.ttl`
       resources[location] = body
       return {
         response: responseFor(location, body, { status: 201 }),
@@ -582,20 +551,6 @@ function createSolidDouble({
       }
     }
   }
-}
-
-function graphDocument(subjects) {
-  const document = {
-    format: 'oldmed-graph',
-    subjects: Object.fromEntries(subjects.map(subject => [subject.id, subject]))
-  }
-  Object.defineProperty(document, 'data', {
-    get() {
-      return Object.values(this.subjects)
-    },
-    enumerable: false
-  })
-  return document
 }
 
 function responseFor(url, object, options = {}) {
@@ -608,14 +563,12 @@ function responseFor(url, object, options = {}) {
 }
 
 function dataFor(url, object) {
+  if (typeof object === 'string') {
+    return parseGraph(object, { url })
+  }
   if (object?.subjects) {
     return object
   }
 
-  return {
-    primary: object,
-    subjects: {
-      [object.id ?? url]: object
-    }
-  }
+  return graphFixture([object], { url })
 }

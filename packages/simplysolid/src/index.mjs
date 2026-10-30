@@ -34,6 +34,7 @@ export class SimplySolid {
       resources: {}
     }
     this.workspace = config.workspace ?? workspace({
+      context: config.context,
       solid: normalized.client,
       sources: normalized.sources,
       resources: normalized.resources,
@@ -83,41 +84,12 @@ export class SimplySolid {
     }
   }
 
-  async sync(options = {}) {
-    if (isResourceSyncRequest(this.workspace, options)) {
-      return this.syncResources(options)
-    }
-
-    this.status.state = 'syncing'
-    this.status.error = null
-
-    try {
-      await this.workspace.open(options)
-
-      for (const handle of Object.values(this.data)) {
-        handle.refresh()
-      }
-
-      this.acceptOpenedWorkspace()
-      if (this.status.state === 'ready') this.status.lastSync = new Date()
-      return this.data
-    } catch (error) {
-      this.status.state = 'error'
-      this.status.error = error
-      throw error
-    }
-  }
-
-  dataset(options = {}) {
-    return this.workspace.dataset(options)
-  }
-
   async connect(options = {}) {
     this.status.state = 'connecting'
     this.status.error = null
 
     try {
-      const client = options.solid ?? options.solidApi ?? options.client
+      const client = options.solid
       if (client) {
         this.solid = client
         this.workspace.setClient(client)
@@ -149,12 +121,12 @@ export class SimplySolid {
     }
   }
 
-  async syncResources(options = {}) {
+  async sync(resourceOrId, options = {}) {
     this.status.state = 'syncing'
     this.status.error = null
 
     try {
-      const status = await this.workspace.sync(options)
+      const status = await this.workspace.sync(resourceOrId, options)
 
       for (const handle of Object.values(this.data)) {
         handle.refresh()
@@ -272,7 +244,7 @@ export class SimplySolidCollection {
     return this.items
   }
 
-  async sync() {
+  async open() {
     this.status.state = 'syncing'
     this.status.error = null
 
@@ -349,6 +321,22 @@ export class SimplySolidCollection {
     })
   }
 
+  async save(idOrObject, options = {}) {
+    return this.write('saving', async () => {
+      const object = this.resolve(idOrObject)
+      const status = await this.collection.save(object, options)
+      this.status.lastSave = status
+      if (!status.ok) {
+        throw status.error ?? new Error(
+          `simplysolid: ${this.name} save failed: ${status.status}`,
+          { cause: status }
+        )
+      }
+      this.refresh()
+      return status
+    })
+  }
+
   async saveAll() {
     return this.write('saving', async () => {
       const statuses = await this.collection.saveAll()
@@ -411,11 +399,11 @@ function normalizeConfig(config) {
     }
   }
 
-  const client = config.solid ?? config.solidApi ?? config.client
+  const client = config.solid
 
   const explicitSources = config.sources ?? []
   const explicitResources = config.resources ?? []
-  const data = config.data ?? config.collections ?? {}
+  const data = config.data ?? {}
   const generatedSources = []
   const generatedResources = []
   const collections = {}
@@ -530,28 +518,17 @@ function localSourceForResource(name, descriptor = {}, config = {}) {
     return localConfig
   }
 
-  const indexedDBName = typeof localConfig.indexedDB === 'string'
-    ? localConfig.indexedDB
-    : null
-  const indexedDBFactory = localConfig.indexedDB && typeof localConfig.indexedDB !== 'string'
-    ? localConfig.indexedDB
-    : localConfig.indexedDBFactory
-
-  const databaseName = indexedDBName
-    ?? localConfig.name
-    ?? localConfig.databaseName
-    ?? localConfig.database
+  const databaseName = localConfig.indexedDB
     ?? config.local?.indexedDB
-    ?? config.local?.name
-    ?? slugFrom(config.app?.slug ?? config.slug ?? config.app?.id ?? config.id ?? defaultAppId())
+    ?? slugFrom(config.app?.slug ?? config.app?.id ?? defaultAppId())
 
   return workspaceLocal.indexedDB(databaseName, {
     ...localConfig,
     id: localConfig.id ?? `${descriptor.resourceId ?? descriptor.resource ?? descriptor.source ?? name}:local`,
     key: localConfig.key ?? name,
     prefixes: localConfig.prefixes ?? descriptor.prefixes,
-    document: localConfig.document ?? descriptor.document,
-    indexedDB: indexedDBFactory
+    turtle: localConfig.turtle,
+    indexedDB: localConfig.indexedDBFactory
   })
 }
 
@@ -624,13 +601,6 @@ function remoteResourcePart(name, descriptor = {}, service) {
       writeOptions: config.writeOptions
     })
   })
-}
-
-function isResourceSyncRequest(currentWorkspace, options) {
-  return Boolean(
-    options?.workspacePart === 'resource'
-    || (typeof options === 'string' && currentWorkspace.resourceById.has(options))
-  )
 }
 
 function sourceFromPath(name, descriptor, config) {
@@ -716,7 +686,7 @@ function registrationsFor(config, conventions) {
     return config.registrations
   }
 
-  const data = config.data ?? config.collections ?? {}
+  const data = config.data ?? {}
 
   return Object.entries(data)
     .map(([name, descriptor]) => {

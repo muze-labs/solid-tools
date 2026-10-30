@@ -1,4 +1,5 @@
 import oldm from '@muze-nl/oldm'
+import { isDeleted, markDeleted, mergeReplicas } from './replicas.mjs'
 import { from } from '@muze-nl/jaqt'
 import * as assert from '@muze-nl/assert'
 import { oneOf } from '@muze-nl/assert'
@@ -6,6 +7,7 @@ import { WorkspaceCollection } from './collection.mjs'
 import {
   cloneValue,
   graphDocumentFrom,
+  graphDocumentToTurtle,
   isObject,
   mergeGraphDocuments
 } from './graph-document.mjs'
@@ -105,6 +107,8 @@ export class SolidWorkspace {
     }
     this.records = []
     this.objects = new WeakMap()
+    this.operations = new Map()
+    this.revisions = new Map()
     if (options.sources) {
       this.addSource(options.sources)
     }
@@ -185,6 +189,8 @@ export class SolidWorkspace {
     if (existing) {
       current = { ...existing }
     }
+
+    current.scalarPredicates = part.scalarPredicates ?? current.scalarPredicates ?? []
 
     let remoteSource = current.remote
     if (part.remote) {
@@ -290,76 +296,62 @@ export class SolidWorkspace {
     })
   }
 
-  async openResource(resourceOrId, options = {}) {
+  openResource(resourceOrId, options = {}) {
     const logicalResource = resolveResource(this, resourceOrId)
-    const sources = resourceSources(logicalResource)
-    const failures = []
-    const loaded = []
-    const throwOnError = options.throwOnError ?? false
+    return this.sequence(logicalResource.id, () => this.openReplica(logicalResource, options))
+  }
 
+  async openReplica(logicalResource, options) {
+    const revision = this.revisions.get(logicalResource.id) ?? 0
+    const sources = resourceSources(logicalResource)
+    const loaded = []
+    const failures = []
     this.status.state = 'opening'
     this.status.error = null
     this.setResourceStatus(logicalResource, { state: 'opening', error: null })
 
     for (const source of sources) {
+      this.setSourceStatus(source, { state: 'opening', error: null })
       try {
-        loaded.push({
-          source,
-          objects: await this.loadSource(source)
-        })
+        const document = await this.loadGraphDocument(source, options)
+        loaded.push({ source, document })
+        this.setSourceStatus(source, { state: 'ready', error: null })
       } catch (error) {
         failures.push({ source, error })
-        if (throwOnError) {
-          this.status.state = 'error'
-          this.status.error = error
-          this.setResourceStatus(logicalResource, { state: 'error', error })
-          throw error
-        }
+        this.setSourceStatus(source, { state: sourceFailureState(error), error })
       }
     }
 
-    if (
-      logicalResource.local
-      && logicalResource.remote
-      && this.status.sources[logicalResource.remote.id]?.state === 'ready'
-    ) {
+    const isCurrent = () => (this.revisions.get(logicalResource.id) ?? 0) === revision
+    const local = loaded.find(entry => entry.source === logicalResource.local)
+    const remote = loaded.find(entry => entry.source === logicalResource.remote)
+    if (isCurrent() && local && remote) {
       try {
-        const document = mergeGraphDocuments([
-          this.dataset({ sources: [logicalResource.local.id] }),
-          this.dataset({ sources: [logicalResource.remote.id] })
-        ], options)
-
-        if (document.changed || options.force === true) {
-          await saveGraphDocument(this, logicalResource.local, document, options.writeOptions)
-          this.replaceSourceRecords(logicalResource.local, cloneValue(document.data), {
-            source: logicalResource.local,
-            sourceUrl: logicalResource.local.url,
-            status: 'loaded'
-          })
-          this.setSourceStatus(logicalResource.local, { state: 'ready', error: null })
-        }
+        local.document = mergeReplicas([local.document, remote.document], logicalResource)
+        await saveGraphDocument(this, local.source, local.document, options.writeOptions)
       } catch (error) {
-        failures.push({ source: logicalResource.local, error })
-        this.setSourceStatus(logicalResource.local, {
-          state: sourceFailureState(error),
-          error
-        })
-        if (throwOnError) {
-          this.status.state = 'error'
-          this.status.error = error
-          this.setResourceStatus(logicalResource, { state: 'error', error })
-          throw error
-        }
+        failures.push({ source: local.source, error })
+        this.setSourceStatus(local.source, { state: sourceFailureState(error), error })
       }
     }
-
+    // A save admitted during a read owns the newer working value. Its queued
+    // commit follows this open; publishing the read now would undo that edit.
+    if (isCurrent()) {
+      for (const { source, document } of loaded) {
+        if (failures.some(failure => failure.source === source)) continue
+        this.replaceSourceRecords(source, cloneValue(graphDocumentFrom(document).data), {
+          source, sourceUrl: source.url, data: document, status: 'loaded'
+        })
+      }
+    }
     this.status.lastOpen = { resource: logicalResource, sources, loaded, failures }
     this.status.state = workspaceState(this)
     this.status.error = failures[0]?.error ?? null
     this.setResourceStatus(logicalResource, {
-      state: resourceState(this, logicalResource),
+      state: failures.some(failure => failure.source === logicalResource.local) ? 'error' : resourceState(this, logicalResource),
       error: failures[0]?.error ?? null
     })
+    if (options.throwOnError && failures.length) throw failures[0].error
     return this
   }
 
@@ -446,7 +438,8 @@ export class SolidWorkspace {
 
       assertSolidClient(this)
       try {
-        const data = await this.solid.get(descriptor.url, requestOptions(descriptor.options))
+        const response = await this.solid.get(descriptor.url, requestOptions(descriptor.options))
+        const data = typeof response === 'string' ? graphDocumentFrom(response, { url: descriptor.url }) : response
         const objects = Object.values(data.subjects)
 
         if (descriptor.append) {
@@ -520,7 +513,7 @@ export class SolidWorkspace {
       .map(record => ({
         format: config.format,
         version: config.version,
-        prefixes: config.prefixes,
+        prefixes: { ...record.source?.prefixes, ...record.data?.prefixes, ...record.object.graph?.prefixDeclarations(), ...config.prefixes },
         subjects: {
           [record.object.id]: record.object
         }
@@ -596,148 +589,82 @@ export class SolidWorkspace {
     }
   }
 
-  async syncResource(resourceOrId, options = {}) {
+  syncResource(resourceOrId, options = {}) {
     const logicalResource = resolveResource(this, resourceOrId)
+    return this.sequence(logicalResource.id, () => this.syncReplica(logicalResource, options))
+  }
+
+  sequence(key, operation) {
+    const previous = this.operations.get(key) ?? Promise.resolve()
+    const current = previous.catch(() => {}).then(operation)
+    this.operations.set(key, current)
+    current.finally(() => {
+      if (this.operations.get(key) === current) this.operations.delete(key)
+    }).catch(() => {})
+    return current
+  }
+
+  async syncReplica(logicalResource, options = {}) {
     const localSource = logicalResource.local
     const remoteSource = logicalResource.remote
+    if (!localSource || !remoteSource) throw new Error(`solid-workspace: resource ${logicalResource.id} needs local and remote replicas to sync`)
+    if (remoteSource.readOnly) throw new Error(`solid-workspace: source ${remoteSource.id} is read-only`)
 
-    if (!localSource) {
-      throw new Error(`solid-workspace: resource ${logicalResource.id} needs a local replica to sync`)
-    }
-    if (!remoteSource) {
-      throw new Error(`solid-workspace: resource ${logicalResource.id} needs a remote replica to sync`)
-    }
-    if (remoteSource.readOnly) {
-      throw new Error(`solid-workspace: source ${remoteSource.id} is read-only`)
-    }
-
+    const revision = this.revisions.get(logicalResource.id) ?? 0
+    const isCurrent = () => (this.revisions.get(logicalResource.id) ?? 0) === revision
     this.setResourceStatus(logicalResource, { state: 'syncing', error: null })
     this.setSourceStatus(remoteSource, { state: 'syncing', error: null })
-
-    let remoteDocument
+    let activeSource = remoteSource
+    let document
+    let localSaved = false
     try {
-      if (options.loadRemote === false) {
-        remoteDocument = graphDocumentFrom(options.remoteDocument)
-      } else {
-        remoteDocument = await this.loadGraphDocument(remoteSource, options)
-      }
-    } catch (error) {
-      this.setSourceStatus(remoteSource, {
-        state: sourceFailureState(error),
-        error
-      })
-      this.markSyncPending({
-        from: localSource.id,
-        into: remoteSource.id
-      })
-      this.setResourceStatus(logicalResource, {
-        state: 'sync-pending',
-        error
-      })
-      return {
-        ok: false,
-        status: this.status.sources[remoteSource.id].state,
-        resource: logicalResource,
-        source: remoteSource,
-        sourceUrl: remoteSource.url,
-        error
-      }
-    }
+      const remoteDocument = options.loadRemote === false
+        ? graphDocumentFrom(options.remoteDocument)
+        : await this.loadGraphDocument(remoteSource, options)
+      if (!isCurrent()) return this.pendingReplica(logicalResource)
+      document = mergeReplicas([
+        remoteDocument,
+        this.dataset({ sources: [localSource.id] })
+      ], logicalResource)
 
-    const localDocument = this.dataset({
-      sources: [localSource.id],
-      format: options.format,
-      version: options.version,
-      prefixes: options.prefixes
-    })
-    const document = mergeGraphDocuments([
-      remoteDocument,
-      localDocument
-    ], options)
-
-    if (!document.changed && options.force !== true) {
-      this.clearSyncPending(remoteSource)
-      this.setResourceStatus(logicalResource, { state: 'ready', error: null })
-      return {
-        ok: true,
-        status: 'unchanged',
-        resource: logicalResource,
-        source: remoteSource,
-        sourceUrl: remoteSource.url,
-        document
-      }
-    }
-
-    let response
-    try {
-      response = await saveGraphDocument(this, remoteSource, document, options.writeOptions)
-    } catch (error) {
-      this.setSourceStatus(remoteSource, {
-        state: sourceFailureState(error),
-        error
-      })
-      this.markSyncPending({
-        from: localSource.id,
-        into: remoteSource.id
-      })
-      this.setResourceStatus(logicalResource, {
-        state: 'sync-pending',
-        error
-      })
-      return {
-        ok: false,
-        status: this.status.sources[remoteSource.id].state,
-        resource: logicalResource,
-        source: remoteSource,
-        sourceUrl: remoteSource.url,
-        error
-      }
-    }
-
-    try {
+      activeSource = localSource
       await saveGraphDocument(this, localSource, document, options.localWriteOptions ?? options.writeOptions)
-      this.replaceSourceRecords(remoteSource, cloneValue(document.data), {
-        source: remoteSource,
-        sourceUrl: remoteSource.url,
-        status: 'loaded'
-      })
-      this.replaceSourceRecords(localSource, cloneValue(document.data), {
-        source: localSource,
-        sourceUrl: localSource.url,
-        status: 'loaded'
-      })
-      this.clearSyncPending(remoteSource)
-      this.setSourceStatus(remoteSource, { state: 'ready', error: null })
+      localSaved = true
       this.setSourceStatus(localSource, { state: 'ready', error: null })
-      this.setResourceStatus(logicalResource, { state: 'ready', error: null })
+      if (!isCurrent()) return this.pendingReplica(logicalResource)
 
-      return {
-        ok: true,
-        status: 'synced',
-        resource: logicalResource,
-        source: remoteSource,
-        sourceUrl: remoteSource.url,
-        document,
-        response
-      }
+      activeSource = remoteSource
+      const response = await saveGraphDocument(this, remoteSource, document, options.writeOptions)
+      if (!isCurrent()) return this.pendingReplica(logicalResource)
+      this.publishReplica(localSource, document)
+      this.publishReplica(remoteSource, document)
+      this.clearSyncPending(remoteSource)
+      this.setResourceStatus(logicalResource, { state: 'ready', error: null })
+      return { ok: true, status: 'synced', resource: logicalResource, source: remoteSource, sourceUrl: remoteSource.url, document, response }
     } catch (error) {
-      this.setSourceStatus(localSource, {
-        state: sourceFailureState(error),
-        error
-      })
+      // A failed remote write still leaves the merged local resource usable.
+      if (localSaved && isCurrent()) this.publishReplica(localSource, document)
+      this.pendingReplica(logicalResource)
+      this.setSourceStatus(activeSource, { state: sourceFailureState(error), error })
       this.setResourceStatus(logicalResource, {
-        state: 'error',
-        error
+        state: activeSource === localSource ? 'error' : 'sync-pending', error
       })
-      return {
-        ok: false,
-        status: this.status.sources[localSource.id].state,
-        resource: logicalResource,
-        source: localSource,
-        sourceUrl: localSource.url,
-        error
-      }
+      return { ok: false, status: this.status.sources[activeSource.id].state, resource: logicalResource, source: activeSource, sourceUrl: activeSource.url, localSaved, error }
     }
+  }
+
+  publishReplica(source, document) {
+    this.replaceSourceRecords(source, cloneValue(document.data), {
+      source, sourceUrl: source.url, data: document, status: 'loaded'
+    })
+    this.setSourceStatus(source, { state: 'ready', error: null })
+  }
+
+  pendingReplica(logicalResource) {
+    this.markSyncPending({ from: logicalResource.local.id, into: logicalResource.remote.id })
+    this.setSourceStatus(logicalResource.remote, { state: 'sync-pending' })
+    this.setResourceStatus(logicalResource, { state: 'sync-pending', error: null })
+    return { ok: true, status: 'sync-pending', resource: logicalResource }
   }
 
   async loadGraphDocument(sourceOrId, options = {}) {
@@ -762,7 +689,7 @@ export class SolidWorkspace {
         ...options.readOptions
       }))
 
-      return graphDocumentFrom(response)
+      return graphDocumentFrom(response, { url: descriptor.url })
     } catch (error) {
       const status = errorStatus(error)
       if (status === 404 || status === 410) {
@@ -838,17 +765,24 @@ export class SolidWorkspace {
       return object
     }
 
-    await this.save(object, options)
+    const result = await this.save(object, options)
+    if (!result.ok) throw result.error ?? new Error(`solid-workspace: create failed: ${result.status}`, { cause: result })
     return object
   }
 
-  async save(object, options = {}) {
+  save(object, options = {}) {
     const record = this.objects.get(object)
-
-    if (!record) {
-      throw new Error('solid-workspace: cannot save an object that is not tracked by this workspace')
+    if (!record) return Promise.reject(new Error('solid-workspace: cannot save an object that is not tracked by this workspace'))
+    if (record.source.logicalResource) {
+      record.deleted = isDeleted(object)
     }
+    const key = record.source.logicalResource ?? record.source.id
+    this.revisions.set(key, (this.revisions.get(key) ?? 0) + 1)
+    const document = typeof record.source.save === 'function' ? this.dataset({ sources: [record.source.id] }) : null
+    return this.sequence(key, () => this.saveRecord(record, options, document))
+  }
 
+  async saveRecord(record, options, document) {
     const issues = validateRecord(record)
     if (issues) {
       return updateRecordStatus(record, {
@@ -868,9 +802,6 @@ export class SolidWorkspace {
 
     try {
       if (typeof record.source?.save === 'function') {
-        const document = this.dataset({
-          sources: [record.source.id]
-        })
         const response = await saveGraphDocument(this, record.source, document, options)
         record.sourceUrl = record.source.url
         record.created = false
@@ -930,13 +861,21 @@ export class SolidWorkspace {
       throw new Error('solid-workspace: cannot delete an object that is not tracked by this workspace')
     }
 
+    if (record.readOnly) return statusFor(record, { ok: false, status: 'read_only', error: new Error('solid-workspace: source is read-only') })
+    const wasDeleted = record.deleted
+    const rollback = record.source.logicalResource ? markDeleted(object) : null
     record.deleted = true
     if (options.save === false) {
       record.status = 'deleted_pending'
       return statusFor(record, { ok: true, status: record.status })
     }
 
-    return this.save(object, options)
+    const result = await this.save(object, options)
+    if (!result.ok) {
+      record.deleted = wasDeleted
+      rollback?.()
+    }
+    return result
   }
 
   async saveAll(records = this.records) {
@@ -1040,7 +979,7 @@ export class SolidWorkspace {
       local: logicalResource.local?.id ?? null,
       remote: logicalResource.remote?.id ?? null,
       state: status.state ?? current.state ?? 'idle',
-      error: status.error ?? current.error ?? null
+      error: Object.hasOwn(status, 'error') ? status.error : current.error ?? null
     }
     this.status.resources[logicalResource.id] = next
     return next
@@ -1229,7 +1168,8 @@ function recordsForSources(currentWorkspace, sources) {
 
   return from(currentWorkspace.records)
     .where(record => {
-      if (record.deleted) {
+      // Logical-resource deletes persist the subject with lm:deleted.
+      if (record.deleted && !record.source?.logicalResource) {
         return false
       }
 
@@ -1250,15 +1190,19 @@ function recordSourceId(record) {
 
 async function saveGraphDocument(workspace, source, document, options = {}) {
   if (typeof source.save === 'function') {
-    return source.save(document, {
+    const result = await source.save(document, {
       source,
       workspace,
       ...options
     })
+    if (result?.ok === false) throw result.error ?? new Error('solid-workspace: source save failed', { cause: result })
+    return result
   }
 
   assertSolidClient(workspace)
-  return workspace.solid.put(source.url, bodyOptions(document, writeOptions(source, options)))
+  const response = await workspace.solid.put(source.url, bodyOptions(await graphDocumentToTurtle(document, { url: source.url }), writeOptions(source, options)))
+  if (response?.ok === false) throw new Error(`solid-workspace: remote save failed (${response.status})`, { cause: response })
+  return response
 }
 
 function assertSolidClient(workspace) {

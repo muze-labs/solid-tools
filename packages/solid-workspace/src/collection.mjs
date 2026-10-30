@@ -1,4 +1,5 @@
 import oldm from '@muze-nl/oldm'
+import { isDeleted } from './replicas.mjs'
 import { from, matchIf } from '@muze-nl/jaqt'
 import * as assert from '@muze-nl/assert'
 import { Optional } from '@muze-nl/assert'
@@ -26,6 +27,7 @@ export class WorkspaceCollection {
     const className = this.descriptor.shape?.for
 
     return from(this.workspace.records)
+      .where(record => !isDeleted(record.object))
       .where({
         deleted: false,
         sourceId: matchIf(sourceIds.length > 0, sourceIds),
@@ -63,7 +65,12 @@ export class WorkspaceCollection {
   }
 
   update(object, changes = {}) {
-    Object.assign(object, changes)
+    if (changes.id != null && changes.id !== object.id) {
+      throw new Error('solid-workspace: an update cannot change subject identity')
+    }
+    for (const [key, value] of Object.entries(changes)) {
+      if (key !== 'id') object[key] = value
+    }
     return object
   }
 

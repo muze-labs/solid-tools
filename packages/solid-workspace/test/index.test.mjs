@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { graphDocumentFromTurtle } from '../src/graph-document.mjs'
 import { collection, graph, local, mergeGraphDocuments, packageName, resource, solid, workspace } from '../src/index.mjs'
 import { shape } from '@muze-labs/oldm-shape'
 
@@ -348,12 +349,13 @@ test('workspace sync additively projects selected sources into a target resource
 
   assert.equal(status.ok, true)
   assert.equal(status.status, 'synced')
+  assertGraphEqual(graphDocumentFromTurtle(client.calls.at(-1)[2], { url: 'https://pod.example/remote.ttl' }).data, [remote, local])
   assert.deepEqual(status.document.data, [remote, local])
   assert.deepEqual(client.calls, [
     ['resource.get', 'https://pod.example/local.ttl'],
     ['resource.get', 'https://pod.example/remote.ttl'],
     ['resource.get', 'https://pod.example/remote.ttl'],
-    ['resource.put', 'https://pod.example/remote.ttl', status.document]
+    ['resource.put', 'https://pod.example/remote.ttl', client.calls.at(-1)[2]]
   ])
 })
 
@@ -380,7 +382,7 @@ test('local memory resources open without a Solid client and export Turtle', asy
   assertGraphEqual(ws.dataset().data, [ada])
   assert.equal(ws.dataset().data[0].schema$name instanceof String, true)
   assert.equal(ws.dataset().data[0].schema$name.type, 'http://www.w3.org/2001/XMLSchema#string')
-  assert.deepEqual(ws.dataset().data[0].schema$about, {
+  assertGraphEqual(ws.dataset().data[0].schema$about, {
     id: 'https://example.test/topic'
   })
   assert.match(turtle, /schema:Person/)
@@ -677,7 +679,7 @@ test('logical resources save offline locally and sync additively later', async (
   assert.equal(ws.status.sources['contacts:solid'].syncPending, false)
   assert.deepEqual(client.calls, [
     ['resource.get', 'https://pod.example/contacts.ttl'],
-    ['resource.put', 'https://pod.example/contacts.ttl', status.document]
+    ['resource.put', 'https://pod.example/contacts.ttl', client.calls.at(-1)[2]]
   ])
 })
 
@@ -799,33 +801,35 @@ function createDatabaseDouble(state) {
       if (!store) {
         throw new Error(`missing object store ${name}`)
       }
-      return {
+      const transaction = {
         objectStore() {
-          return createObjectStoreDouble(store)
+          return createObjectStoreDouble(store, transaction)
         }
       }
+      return transaction
     },
     close() {}
   }
 }
 
-function createObjectStoreDouble(store) {
+function createObjectStoreDouble(store, transaction) {
   return {
     get(key) {
-      return indexedDBSuccess(cloneJson(store.values.get(key)))
+      return indexedDBSuccess(cloneJson(store.values.get(key)), transaction)
     },
     put(value) {
       store.values.set(value[store.keyPath], cloneJson(value))
-      return indexedDBSuccess(value)
+      return indexedDBSuccess(value, transaction)
     }
   }
 }
 
-function indexedDBSuccess(value) {
+function indexedDBSuccess(value, transaction) {
   const request = {}
   queueMicrotask(() => {
     request.result = value
     request.onsuccess?.({ target: request })
+    transaction?.oncomplete?.()
   })
   return request
 }
@@ -872,7 +876,7 @@ function createSolidDouble({ resources = {}, containers = {}, contexts = {} } = 
     },
     async put(url, options = {}) {
       calls.push(['resource.put', url, options.body])
-      resources[url] = options.body
+      resources[url] = typeof options.body === 'string' ? graphDocumentFromTurtle(options.body, { url }) : options.body
       return responseFor(url, options.body)
     },
     async delete(url) {

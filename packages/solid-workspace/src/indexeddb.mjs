@@ -21,21 +21,25 @@ export function openIndexedDatabase({ indexedDB, name, version, storeName }) {
 }
 
 export function indexedDBGet(database, storeName, key) {
+  const transaction = database.transaction(storeName, 'readonly')
   return indexedDBRequest(
-    database.transaction(storeName, 'readonly').objectStore(storeName).get(key)
+    transaction, transaction.objectStore(storeName).get(key)
   )
 }
 
 export function indexedDBPut(database, storeName, value) {
+  const transaction = database.transaction(storeName, 'readwrite')
   return indexedDBRequest(
-    database.transaction(storeName, 'readwrite').objectStore(storeName).put(value)
+    transaction, transaction.objectStore(storeName).put(value)
   )
 }
 
-function indexedDBRequest(request) {
+function indexedDBRequest(transaction, request) {
   return new Promise((resolve, reject) => {
     request.onerror = () => reject(request.error ?? new Error('solid-workspace: IndexedDB request failed'))
-    request.onsuccess = () => resolve(request.result)
+    transaction.onabort = () => reject(transaction.error ?? new Error('solid-workspace: IndexedDB transaction aborted'))
+    transaction.onerror = () => reject(transaction.error ?? request.error ?? new Error('solid-workspace: IndexedDB transaction failed'))
+    transaction.oncomplete = () => resolve(request.result)
   })
 }
 

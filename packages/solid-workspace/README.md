@@ -28,3 +28,9 @@ Expand a prefixed constant once with its OLDM context before using it in filters
 The workspace preserves HTTP/HTTPS namespace identity and does not rewrite
 application-owned legacy documents. OLDM graph write helpers still accept
 prefixed inputs where documented.
+
+Editable logical resources can declare `scalarPredicates` as full predicate IRIs.
+Their sync uses modification timestamps and `lm:deleted` on deleted subjects, commits locally
+before writing remotely, and protects newer admitted saves from stale snapshots.
+See [Replica save contract](../../docs/DESIGN_NOTES/REPLICA_SAVE_CONTRACT.md) for
+behavior, evidence, and the limits on cross-tab and remote concurrency.

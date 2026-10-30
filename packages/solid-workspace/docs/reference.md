@@ -291,7 +291,7 @@ Local writes can mark a remote source as pending:
 await ws.createIn('notes', note)
 ```
 
-A successful `sync('notes')` clears the pending marker.
+A result with `status: 'synced'` clears the pending marker. A newer local save admitted during sync instead returns `status: 'sync-pending'`; sync again to send that revision.
 
 ## Open-World Dataset
 
@@ -313,7 +313,7 @@ const graph = mergeGraphDocuments([
 ])
 ```
 
-For logical resources, `sync()` reconciles the local working copy and current remote graph, writes the merged document to the remote replica, then stores it locally:
+For logical resources, `sync()` reconciles the local working copy and current remote graph, commits the merged document locally, then writes it to the remote replica:
 
 ```js
 await ws.sync('notes')
@@ -328,7 +328,7 @@ await ws.sync({
 })
 ```
 
-This is intentionally additive. It does not interpret absence as deletion and does not resolve semantic conflicts beyond preserving all values.
+The source-to-source form is additive. Logical-resource sync instead honors `lm:deleted` on original subjects and `dcterms:modified` for explicitly declared `scalarPredicates`. Other facts remain additive. See [Replica save contract](../../../docs/DESIGN_NOTES/REPLICA_SAVE_CONTRACT.md) for ordering, failure, timestamp, and concurrency limits.
 
 For PWA-style apps, local replicas should be first-class working copies rather than opaque caches of Solid resources. Remote source failures should become source status such as `offline` or `auth-needed`, while the workspace continues serving the local dataset.
 

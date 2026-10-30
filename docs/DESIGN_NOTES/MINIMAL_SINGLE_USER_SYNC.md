@@ -94,23 +94,31 @@ For margin-notes, the annotation subject is the top-level editable subject. Body
 
 Deletion must be explicit. Absence alone does not mean deletion.
 
-Use a tombstone subject:
+Use the existing [PDS Interop link-metadata ontology](https://pdsinterop.org/solid-link-metadata/#deleted)
+to mark the original subject:
 
 ```turtle
-@prefix sync: <https://vocab.muze.nl/sync#> .
+@prefix lm: <https://purl.org/pdsinterop/link-metadata#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-<#tombstone-note-1>
-    a sync:Tombstone ;
-    sync:deletedSubject <urn:uuid:note-1> ;
+<urn:uuid:note-1>
+    lm:deleted "Deleted by the user" ;
     dcterms:modified "2026-07-25T12:30:00Z"^^xsd:dateTime .
 ```
 
-A tombstone says: this subject was deliberately deleted at this time.
+Keep the subject and its facts in persistence, but hide it from normal views
+while `lm:deleted` is present. The value is a reason string, following the
+ontology's storage example; presence is the marker, not boolean truthiness.
 
-The app should hide a subject when the newest relevant tombstone is newer than the subject's `dcterms:modified`.
+The workspace's replication convention selects the deletion state from the
+newest timestamped version. Deletion wins timestamp ties. Restoring a subject
+removes `lm:deleted` and advances `dcterms:modified`, allowing that absence to
+replace an older marker during merge. The ontology itself does not specify
+these timestamp or conflict rules. See [Replica save contract](REPLICA_SAVE_CONTRACT.md).
 
-For margin-notes, deleting an annotation should tombstone the annotation subject and its owned body/target/selector closure, or tombstone the annotation and let the workspace treat the owned closure as deleted with it.
+Deleting an annotation does not automatically delete linked bodies, targets,
+or selectors. Cascading deletion would require an explicit ownership contract.
 
 ## Merge policy
 
@@ -119,7 +127,7 @@ Given a local graph and a remote graph for the same logical resource:
 1. Load both Turtle resources into one OLDM context.
 2. Group facts by subject ID.
 3. Copy subjects that exist on only one side.
-4. Apply tombstones before showing or saving subjects.
+4. Retain deletion markers and subject facts in persistence; filter deleted subjects from normal views.
 5. For subjects present on both sides, compare `dcterms:modified`.
 6. For known app-edited scalar fields, keep the value from the newer subject.
 7. For unknown predicates and naturally multi-valued fields, union values.

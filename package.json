@@ -7,23 +7,7 @@
   "packageManager": "npm@10",
   "workspaces": [
     "packages/*",
-    "examples/*",
-    "../../muze-nl/metro/packages/metro-core",
-    "../../muze-nl/metro/packages/metro-api",
-    "../../muze-nl/metro/packages/metro-middleware",
-    "../../muze-nl/metro/packages/metro-trace",
-    "../../muze-nl/metro/packages/metro-hashparams",
-    "../../muze-nl/metro/packages/metro-formdata",
-    "../../muze-nl/metro/packages/metro-oauth2",
-    "../../muze-nl/metro/packages/metro-oidc",
-    "../../muze-nl/oldm/packages/metro-oldm",
-    "../../muze-nl/metro/packages/metro",
-    "../../muze-nl/assert",
-    "../../muze-nl/jaqt",
-    "../../muze-nl/oldm/packages/oldm-core",
-    "../../muze-nl/oldm/packages/oldm-n3",
-    "../../muze-nl/oldm/packages/oldm",
-    "../../muze-nl/oldm/packages/oldm-shape"
+    "examples/*"
   ],
   "scripts": {
     "build": "node scripts/check-workspace.mjs",
@@ -54,7 +38,7 @@
     "globals": "^16.5.0"
   },
   "dependencies": {
-    "@muze-labs/simplyflow": "^0.10.2",
+    "@muze-labs/simplyflow": "^0.10.4",
     "@muze-nl/assert": "^0.7.0",
     "@muze-nl/jsfs": "^0.3.5",
     "@muze-nl/metro": "^0.9.2",

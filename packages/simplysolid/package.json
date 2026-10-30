@@ -21,7 +21,7 @@
     "@muze-labs/solid-workspace": "0.1.0"
   },
   "peerDependencies": {
-    "@muze-labs/simplyflow": ">=0.10.0"
+    "@muze-labs/simplyflow": ">=0.10.4"
   },
   "peerDependenciesMeta": {
     "@muze-labs/simplyflow": {

@@ -62,9 +62,41 @@ The current design documents are copied into [`docs/DESIGN_NOTES`](./docs/DESIGN
 ## Development
 
 ```bash
-npm install
+npm ci
 npm run build
 npm test
+npm run lint
 ```
 
 The root `build` script performs a lightweight workspace/export sanity check. The actual package behavior will be implemented milestone by milestone.
+
+Only `packages/*` and `examples/*` are workspaces. External libraries are
+installed from npm using `package-lock.json`; no sibling checkouts or particular
+parent-directory layout are required. Use `npm install` when deliberately
+changing dependencies and commit the resulting lockfile with the manifests.
+
+### Optional local library development
+
+To work on a dependency alongside Solid Tools, install its dependencies and
+build it in its own checkout first. Then link its package directory temporarily:
+
+```bash
+npm install --no-save --package-lock=false /absolute/path/to/library-package
+```
+
+For a dependency in a monorepo, point to the individual package directory.
+Linked code resolves its own dependencies from that checkout, so prepare any
+related local packages there as well. This local setup leaves the committed
+workspace list and dependency declarations unchanged. See
+[npm's folder installation documentation](https://docs.npmjs.com/cli/v11/commands/npm-install/).
+
+Restore the published dependency tree and validate it before submitting changes:
+
+```bash
+npm ci
+npm run check
+npm run lint
+```
+
+Passing tests with local links does not establish compatibility with the
+published dependency versions.

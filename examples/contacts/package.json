@@ -19,6 +19,6 @@
   "private": true,
   "dependencies": {
     "@muze-labs/oldm-shape": "0.4.0",
-    "@muze-labs/simplysolid": "0.1.0"
+    "@muze-labs/simplysolid": "0.2.1"
   }
 }

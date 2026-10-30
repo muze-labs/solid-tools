@@ -457,6 +457,9 @@ function normalizeCollection(name, descriptor = {}, config = {}) {
     const resourceId = descriptor.resourceId ?? descriptor.resource ?? descriptor.source ?? name
     const resource = workspaceResource(resourceId, {
       scalarPredicates: descriptor.scalarPredicates ?? [],
+      ownedPredicates: descriptor.ownedPredicates ?? [],
+      baseURI: descriptor.baseURI,
+      prefixes: descriptor.prefixes,
       local: localSourceForResource(name, descriptor, config),
       remote: remoteSourceForResource(name, descriptor, config, resourceId)
     })

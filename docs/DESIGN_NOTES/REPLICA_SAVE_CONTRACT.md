@@ -74,3 +74,15 @@ permissions, conditional writes, and cross-device concurrency remain unvalidated
 The one-context refactor now uses native graph snapshots and Turtle adapters;
 graph-document compatibility has been removed. See the refactor guide for the
 remaining OLDM graph-removal limitation and deferred workspace manifests.
+
+## Owned edits — 2026-10-30
+
+`ownedPredicates` declares full predicate IRIs whose named targets belong to the
+same edit as their root subject. Only the root needs `dcterms:modified`; its
+revision selects declared scalars throughout the group. Equal timestamps select
+one entire group revision deterministically, with deletion winning a tie.
+Unknown facts remain additive. Ownership links are not automatically scalar:
+include them in `scalarPredicates` too if edits can replace or remove those links.
+Nested ownership is supported; multiple owners and cycles are rejected, including
+conflicts across replicas. Shared references must not be declared as ownership.
+This policy does not delete linked subjects or prune unreferenced snapshots.

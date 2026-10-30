@@ -51,7 +51,7 @@ export class SourceIO {
 
   async write(source, snapshot, options = {}) {
     if (typeof source.save === 'function') {
-      const result = await source.save(await snapshot.write(), {
+      const result = await source.save(await this.serialize(source, snapshot), {
         source,
         workspace: this.workspace,
         ...options
@@ -63,20 +63,27 @@ export class SourceIO {
     }
 
     assertSolidClient(this.solid)
-    const response = await this.solid.put(source.url, bodyOptions(await snapshot.write(), writeOptions(source, options)))
+    const response = await this.solid.put(source.url, bodyOptions(await this.serialize(source, snapshot), writeOptions(source, options)))
     assertWriteSucceeded(response)
     return response
   }
 
   async create(source, snapshot, options = {}) {
     assertSolidClient(this.solid)
-    const turtle = await snapshot.write()
+    const turtle = await this.serialize(source, snapshot)
     const request = writeOptions(source, options)
     const response = source.createContainer
       ? await this.solid.postToContainer(source.createContainer, turtle, request)
       : await this.solid.create(source.url, turtle, request)
     assertWriteSucceeded(response)
     return response
+  }
+
+  serialize(source, snapshot) {
+    const output = source.prefixes ? copyGraph(snapshot, {
+      prefixes: { ...snapshot.prefixDeclarations(), ...source.prefixes }
+    }) : snapshot
+    return output.write()
   }
 
   async remove(url, options = {}) {

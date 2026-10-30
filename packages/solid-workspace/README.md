@@ -56,3 +56,19 @@ editing. Stale nodes are rejected by `save()`.
 write lifecycle, replica lifecycle, shared operation queue, and status owner.
 The boundaries and their ordering contracts are described in the
 [refactor guide](../../docs/DESIGN_NOTES/SOLID_TOOLS_REFACTOR_GUIDE.md#implementation-boundaries--2026-10-30).
+
+## Edit ownership
+
+`ownedPredicates` declares full predicate IRIs whose named targets belong to the
+same edit as their root subject. Only the root needs `dcterms:modified`; its
+revision selects declared scalars throughout the group. Equal timestamps select
+one entire group revision deterministically, with deletion winning a tie.
+Unknown facts remain additive. Ownership links are not automatically scalar:
+include them in `scalarPredicates` too if edits can replace or remove those links.
+Nested ownership is supported; multiple owners and cycles are rejected, including
+conflicts across replicas. Shared references must not be declared as ownership.
+This policy does not delete linked subjects or prune unreferenced snapshots.
+
+Graph merging retains non-conflicting prefix declarations from every source.
+For a reused prefix label, the first source's mapping wins; imported facts keep
+their full IRI meaning. Writers omit declarations unused by the merged output.

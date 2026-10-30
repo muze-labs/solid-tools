@@ -3,16 +3,22 @@ const { BlankNode, Collection } = oldm
 
 export function emptyGraph({
   context = oldm.context(), url = `urn:uuid:${globalThis.crypto.randomUUID()}`,
-  prefixes = {}
+  prefixes = {}, baseURI = url.split('#')[0]
 } = {}) {
-  return new oldm.Graph([], url, 'text/turtle', prefixes, context)
+  const graph = new oldm.Graph([], url, 'text/turtle', prefixes, context)
+  graph.baseURI = baseURI
+  return graph
 }
 
-export function parseGraph(turtle, { url, prefixes = {} } = {}) {
+export function parseGraph(turtle, { url, prefixes = {}, baseURI } = {}) {
   if (typeof turtle !== 'string') {
     throw new TypeError('solid-workspace: expected Turtle text')
   }
-  return oldm.context({ prefixes }).parse(turtle, url, 'text/turtle')
+  const graph = oldm.context({ prefixes }).parse(turtle, url, 'text/turtle')
+  if (baseURI !== undefined) {
+    graph.baseURI = baseURI
+  }
+  return graph
 }
 
 // A detached native graph captures an admitted save or a tentative replica merge.
@@ -24,14 +30,24 @@ export function copyGraph(source, options = {}) {
   const graph = emptyGraph({
     url: source.url,
     prefixes: source.prefixDeclarations(),
-    ...options
+    ...options,
+    baseURI: options.baseURI ?? source.baseURI
   })
   importGraph(graph, source)
   return graph
 }
 
-export function mergeGraphs(sources) {
-  const graph = emptyGraph({ prefixes: sources[0]?.prefixDeclarations() })
+export function mergeGraphs(sources, { baseURI = sources[0]?.baseURI, prefixes: preferredPrefixes = {} } = {}) {
+  const prefixes = {}
+  for (const source of sources) {
+    for (const [prefix, iri] of Object.entries(source.prefixDeclarations())) {
+      if (!Object.hasOwn(prefixes, prefix)) {
+        prefixes[prefix] = iri
+      }
+    }
+  }
+  Object.assign(prefixes, preferredPrefixes)
+  const graph = emptyGraph({ prefixes, baseURI })
   for (const source of sources) {
     importGraph(graph, source)
   }
@@ -87,11 +103,14 @@ function isPrimitiveWrapper(value) {
 
 function primitiveWrapperData(value) {
   const data = {
-    value: value.valueOf()
+    value: value.type ? String(value) : value.valueOf()
   }
 
   for (const [key, item] of Object.entries(value)) {
     if (!/^\d+$/.test(key)) {
+      if (key === 'language' && !item) {
+        continue
+      }
       if (value instanceof String && key === 'type' && item === 'http://www.w3.org/2001/XMLSchema#string') {
         continue
       }

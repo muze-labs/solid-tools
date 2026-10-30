@@ -1,5 +1,5 @@
 import { graphFixture } from './fixtures.mjs'
-import { parseGraph } from '../src/graphs.mjs'
+import { parseGraph, valueKey } from '../src/graphs.mjs'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { collection, local, resource, workspace } from '../src/index.mjs'
@@ -246,4 +246,125 @@ test('deferred deletion is hidden immediately and persists on saveAll', async ()
   assert.equal(isDeleted(parseGraph(await localSource.load(), localSource).subjects[noteId]), false)
   await ws.collections.notes.saveAll()
   assert.equal(isDeleted(parseGraph(await localSource.load(), localSource).subjects[noteId]), true)
+})
+
+const owns = 'https://example.test/owns'
+const text = 'https://schema.org/text'
+const flag = 'https://example.test/flag'
+const ownershipOptions = { ownedPredicates: [owns], scalarPredicates: [text, flag] }
+function ownedGraph(date, title, bodyText, extra = {}) {
+  return graphOf({ id: 'urn:root', dcterms$modified: date, schema$text: title,
+    [owns]: { id: 'urn:body', schema$text: bodyText, ...extra } })
+}
+
+test('owned subjects use their root revision, retaining unknown facts and removing absent scalars', () => {
+  const before = ownedGraph('2026-01-01', 'old title', 'old body', { [flag]: 'old', schema$comment: 'remote fact' })
+  const after = ownedGraph('2026-02-01', 'new title', 'new body', { schema$comment: 'local fact' })
+  for (const inputs of [[before, after], [after, before]]) {
+    const merged = mergeReplicas(inputs, ownershipOptions)
+    assert.equal(String(merged.get('urn:root').schema$text), 'new title')
+    assert.equal(String(merged.get('urn:body').schema$text), 'new body')
+    assert.equal(merged.get('urn:body')[flag], undefined)
+    assert.equal(merged.get('urn:body').dcterms$modified, undefined)
+    assert.deepEqual(oldm.many(merged.get('urn:body').schema$comment).map(String).sort(), ['local fact', 'remote fact'])
+  }
+})
+
+test('an ownership group selects one entire revision on equal timestamps', () => {
+  const left = ownedGraph('2026-01-01', 'A', 'Z')
+  const right = ownedGraph('2026-01-01', 'Z', 'A')
+  const outcomes = [[left, right], [right, left]].map(inputs => {
+    const merged = mergeReplicas(inputs, ownershipOptions)
+    return [String(merged.get('urn:root').schema$text), String(merged.get('urn:body').schema$text)]
+  })
+  assert.deepEqual(outcomes[0], outcomes[1])
+  assert.ok([['A', 'Z'], ['Z', 'A']].some(pair => JSON.stringify(pair) === JSON.stringify(outcomes[0])))
+})
+
+test('ownership follows declared links only, including nested owned nodes', () => {
+  const make = (date, value) => graphOf({
+    id: 'urn:root', dcterms$modified: date,
+    [owns]: { id: 'urn:body', [owns]: { id: 'urn:child', schema$text: value } },
+    'https://example.test/reference': { id: 'urn:external', schema$text: value }
+  })
+  const merged = mergeReplicas([make('2026-01-01', 'old'), make('2026-02-01', 'new')], ownershipOptions)
+  assert.equal(String(merged.get('urn:child').schema$text), 'new')
+  assert.deepEqual(oldm.many(merged.get('urn:external').schema$text).map(String).sort(), ['new', 'old'])
+})
+
+test('ownership rejects conflicting parents across replicas and cycles', () => {
+  const a = graphOf({ id: 'urn:a', [owns]: { id: 'urn:child' } })
+  const b = graphOf({ id: 'urn:b', [owns]: { id: 'urn:child' } })
+  assert.throws(() => mergeReplicas([a, b], ownershipOptions), /multiple owners/)
+  const cycle = graphOf({ id: 'urn:a', [owns]: { id: 'urn:b', [owns]: { id: 'urn:a' } } })
+  assert.throws(() => mergeReplicas([cycle], ownershipOptions), /ownership cycle/)
+})
+
+test('numeric scalar tie keys are unchanged by typed lexical representation', () => {
+  const type = 'http://www.w3.org/2001/XMLSchema#integer'
+  assert.equal(valueKey(oldm.literal(9, { type })), valueKey(oldm.literal('9', { type, language: '' })))
+  assert.notEqual(valueKey(oldm.literal('09', { type })), valueKey(oldm.literal(9, { type })))
+})
+
+test('owned links require named subjects and merge never mutates inputs', () => {
+  assert.throws(() => mergeReplicas([graphOf({ id: 'urn:root', [owns]: oldm.literal('text') })], ownershipOptions), /named subjects/)
+  const before = ownedGraph('2026-01-01', 'old title', 'old body')
+  const after = ownedGraph('2026-02-01', 'new title', 'new body')
+  mergeReplicas([before, after], ownershipOptions)
+  assert.equal(String(before.get('urn:body').schema$text), 'old body')
+})
+
+
+test('owned Collections replace membership and member scalars together, including shared empty lists', async () => {
+  const make = (date, members, title) => oldm.context().parse(`
+    @prefix ex: <https://example.test/> .
+    @prefix dc: <http://purl.org/dc/terms/> .
+    @prefix schema: <https://schema.org/> .
+    <urn:root> dc:modified "${date}"; schema:text "${title}";
+      ex:owns (${members.map(id => `<urn:${id}>`).join(' ')}) .
+    <urn:other> dc:modified "${date}"; ex:owns () .
+    ${members.map(id => `<urn:${id}> schema:text "${title}-${id}" .`).join('\n')}
+  `, 'https://pod.example/notes', 'text/turtle')
+  const options = { ownedPredicates: [owns], scalarPredicates: [owns, text] }
+  const before = make('2026-01-01', ['a', 'b'], 'old')
+  before.get('urn:b').schema$comment = 'unknown fact'
+  const after = make('2026-02-01', ['a'], 'new')
+  for (const inputs of [[before, after], [after, before]]) {
+    const merged = mergeReplicas(inputs, options)
+    assert.deepEqual(Array.from(merged.get('urn:root').ex$owns, item => item.id), ['urn:a'])
+    assert.equal(String(merged.get('urn:a').schema$text), 'new-a')
+    assert.equal(merged.get('urn:b').schema$text, undefined)
+    assert.equal(String(merged.get('urn:b').schema$comment), 'unknown fact')
+    const cleared = mergeReplicas([before, merged, make('2026-03-01', [], 'clear')], options)
+    const restored = oldm.context().parse(await cleared.write(), 'https://pod.example/notes', 'text/turtle')
+    assert.equal(restored.get('urn:root').ex$owns.id, 'http://www.w3.org/1999/02/22-rdf-syntax-ns#nil')
+    assert.equal(restored.get('urn:b').schema$text, undefined)
+    assert.equal(String(restored.get('urn:b').schema$comment), 'unknown fact')
+  }
+  assert.equal(String(before.get('urn:a').schema$text), 'old-a')
+})
+
+test('equal-time owned Collection edits select a complete value in either replica order', () => {
+  const make = (title, members) => {
+    const data = graphOf({ id: 'urn:root', dcterms$modified: '2026-01-01', schema$text: title })
+    const items = new oldm.Collection(data)
+    for (const name of members) {
+      const item = data.addNamedNode(`urn:${name}`)
+      data.set(item, text, `${title}-${name}`)
+      items.push(item)
+    }
+    data.set('urn:root', owns, items)
+    return data
+  }
+  const left = make('left', ['a', 'b'])
+  const right = make('right', ['b', 'a'])
+  const results = [[left, right], [right, left]].map(inputs => {
+    const merged = mergeReplicas(inputs, { ownedPredicates: [owns], scalarPredicates: [owns, text] })
+    const root = merged.get('urn:root')
+    const title = String(root.schema$text)
+    const items = Array.from(root[owns], item => [item.id, String(item.schema$text)])
+    assert.deepEqual(items.map(([, value]) => value), items.map(([id]) => `${title}-${id.slice(4)}`))
+    return [title, items]
+  })
+  assert.deepEqual(results[0], results[1])
 })

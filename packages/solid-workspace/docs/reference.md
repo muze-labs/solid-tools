@@ -374,3 +374,62 @@ Common statuses:
 - `error`
 
 `saveAll()` returns all statuses when every save succeeds. If any save fails, it throws an error with `error.statuses` and `error.cause.failures`.
+
+## Replica edit ownership
+
+`ownedPredicates` declares full predicate IRIs whose named targets belong to the
+same edit as their root subject. Only the root needs `dcterms:modified`; its
+revision selects declared scalars throughout the group. Equal timestamps select
+one entire group revision deterministically, with deletion winning a tie.
+Unknown facts remain additive. Ownership links are not automatically scalar:
+include them in `scalarPredicates` too if edits can replace or remove those links.
+Nested ownership is supported; multiple owners and cycles are rejected, including
+conflicts across replicas. Shared references must not be declared as ownership.
+This policy does not delete linked subjects or prune unreferenced snapshots.
+
+```js
+resource('notes', {
+  local: localSource,
+  remote: remoteSource,
+  ownedPredicates: ['http://www.w3.org/ns/oa#hasBody'],
+  scalarPredicates: ['https://vocab.muze.nl/cobalt#fragment']
+})
+```
+
+Ownership is configuration, not inferred from arbitrary RDF links or stored as
+extra triples. The root and editable children must have stable named identities.
+
+### Turtle base independent of storage location
+
+`resource(id, { local, remote, baseURI })` optionally chooses the output Turtle
+base for both replicas. Source factories also accept `baseURI`; a resource-level
+setting takes precedence and survives adding or replacing a replica. For example:
+
+```js
+resource('notes', {
+  local: local.indexedDB('notes'),
+  remote: solid.resource('https://pod.example/notes.ttl'),
+  baseURI: 'https://book.example/chapter'
+})
+```
+
+Targets on that page can serialize as `<#paragraph>`. The graph's `url`, source
+provenance and network destination remain the storage URL. Parsing still resolves
+incoming relative IRIs against the retrieval URL and any Turtle `@base` directive;
+the configured base is applied afterward, without renaming subjects. Copies retain
+their graph base; replica merges use the resource's configured base. Without an
+explicit resource base, a merge uses its first graph's base.
+
+### Resource prefix preferences and owned Collections
+
+A resource's optional `prefixes` map chooses output abbreviations for both replicas
+and is retained when reconnecting a replica. It takes precedence over parsed
+prefix declarations. Saves use graph copies so changed labels do not reinterpret
+existing predicates. Merges import full IRIs before applying the preferred mapping.
+This map may be populated after opening, when an application recovers its namespace
+from the loaded data. It does not rename subjects or alter storage addresses.
+
+An owned predicate may hold an ordered Collection of named members. Declaring its
+membership and member fields as scalar predicates selects the whole current value
+under the root timestamp. Canonical rdf:nil is an empty list with no owned members.
+Removed member scalar fields are cleared; unrelated predicates remain additive.

@@ -47,6 +47,7 @@ export class WorkingGraphs {
     const options = {
       context: this.context,
       url: source.url,
+      baseURI: source.baseURI,
       prefixes: { ...snapshot?.prefixDeclarations(), ...source.prefixes }
     }
     const graph = snapshot ? copyGraph(snapshot, options) : emptyGraph({

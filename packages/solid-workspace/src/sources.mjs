@@ -113,7 +113,10 @@ export class WorkspaceSources {
       current = { ...existing }
     }
 
+    current.baseURI = part.baseURI ?? current.baseURI
+    current.prefixes = part.prefixes ?? current.prefixes
     current.scalarPredicates = part.scalarPredicates ?? current.scalarPredicates ?? []
+    current.ownedPredicates = part.ownedPredicates ?? current.ownedPredicates ?? []
 
     let remoteSource = current.remote
     if (part.remote) {
@@ -279,6 +282,8 @@ function resourceReplicaSource(descriptor, { resource, replica, syncTo } = {}) {
 
   return Object.freeze({
     ...descriptor,
+    baseURI: resource.baseURI ?? descriptor.baseURI,
+    prefixes: resource.prefixes ?? descriptor.prefixes,
     logicalResource: resource.id,
     replica,
     syncTo: syncTo ?? descriptor.syncTo

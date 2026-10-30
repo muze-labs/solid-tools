@@ -38,42 +38,110 @@ export function markDeleted(subject, now = new Date().toISOString()) {
   }
 }
 
-// Replica policy is separate from additive graph import. The caller declares
-// scalar predicates; this module has no annotation or editor vocabulary.
-export function mergeReplicas(graphs, { scalarPredicates = [] } = {}) {
+// Ownership and scalar policy are explicit; no application vocabulary belongs here.
+export function mergeReplicas(graphs, {
+  scalarPredicates = [], ownedPredicates = [], baseURI, prefixes
+} = {}) {
   const copies = graphs.map(graph => copyGraph(graph))
-  const versions = new Map()
-  for (const graph of copies) {
-    const context = graph
-    visit(graph.subjects, subject => {
-      if (!subject.id) return
-      const candidates = versions.get(subject.id) ?? []
-      candidates.push({ subject, context: subject.graph ?? context })
-      versions.set(subject.id, candidates)
+  const snapshots = copies.map(context => {
+    const subjects = new Map()
+    visit(context.subjects, subject => {
+      if (subject.id) {
+        subjects.set(subject.id, { subject, context })
+      }
     })
+    return subjects
+  })
+  const owners = editOwners(snapshots, ownedPredicates)
+  const versions = new Map()
+  for (const subjects of snapshots) {
+    const groups = new Map()
+    for (const [id, candidate] of subjects) {
+      const root = editRoot(id, owners)
+      if (!groups.has(root)) {
+        groups.set(root, new Map())
+      }
+      groups.get(root).set(id, candidate)
+    }
+    for (const [root, members] of groups) {
+      const candidates = versions.get(root) ?? []
+      candidates.push({ root: subjects.get(root), members })
+      versions.set(root, candidates)
+    }
   }
   const scalars = new Set([modified, deleted, ...scalarPredicates])
   for (const candidates of versions.values()) {
-    const dated = candidates.filter(candidate => timestamp(candidate) != null)
-    if (dated.length === 0) continue
-    dated.sort((left, right) => timestamp(left) - timestamp(right)
-      || Number(isDeleted(left.subject, left.context))
-      - Number(isDeleted(right.subject, right.context))
-      || scalarKey(left, scalars).localeCompare(scalarKey(right, scalars)))
+    const dated = candidates.filter(candidate => timestamp(candidate.root) != null)
+    if (dated.length === 0) {
+      continue
+    }
+    dated.sort((left, right) => timestamp(left.root) - timestamp(right.root)
+      || Number(isDeleted(left.root.subject, left.root.context))
+      - Number(isDeleted(right.root.subject, right.root.context))
+      || revisionKey(left, scalars).localeCompare(revisionKey(right, scalars)))
     const winner = dated.at(-1)
-    const selected = new Map(Object.entries(winner.subject)
-      .map(([key, value]) => [predicateIRI(key, winner), { key, value }])
-      .filter(([iri]) => scalars.has(iri)))
+    // Capture before modifying any candidate, including the winning graph.
+    const selected = new Map([...winner.members].map(([id, member]) => [
+      id, Object.entries(member.subject)
+        .map(([key, value]) => [predicateIRI(key, member), value])
+        .filter(([iri]) => scalars.has(iri))
+    ]))
     for (const candidate of candidates) {
-      for (const key of Object.keys(candidate.subject)) {
-        if (scalars.has(predicateIRI(key, candidate))) delete candidate.subject[key]
-      }
-      for (const [iri, { key, value }] of selected) {
-        candidate.subject[candidate.subject.graph?.propertyName(iri) ?? key] = value
+      for (const [id, member] of candidate.members) {
+        for (const key of Object.keys(member.subject)) {
+          if (scalars.has(predicateIRI(key, member))) {
+            delete member.subject[key]
+          }
+        }
+        for (const [iri, value] of selected.get(id) ?? []) {
+          member.subject[member.context.propertyName(iri)] = value
+        }
       }
     }
   }
-  return mergeGraphs(copies)
+  return mergeGraphs(copies, { baseURI, prefixes })
+}
+
+function editOwners(snapshots, predicates) {
+  const owners = new Map()
+  for (const subjects of snapshots) {
+    for (const [id, candidate] of subjects) {
+      for (const predicate of predicates) {
+        for (const child of values(field(candidate, predicate))) {
+          // rdf:nil represents an empty Collection, not a shared owned subject.
+          if (child?.id === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#nil') {
+            continue
+          }
+          if (!(child instanceof oldm.NamedNode)) {
+            throw new TypeError('solid-workspace: owned links must reference named subjects')
+          }
+          const parent = owners.get(child.id)
+          if (parent && parent !== id) {
+            throw new Error(`solid-workspace: multiple owners for ${child.id}`)
+          }
+          owners.set(child.id, id)
+        }
+      }
+    }
+  }
+  return owners
+}
+
+function editRoot(id, owners) {
+  const visited = new Set()
+  while (owners.has(id)) {
+    if (visited.has(id)) {
+      throw new Error(`solid-workspace: ownership cycle at ${id}`)
+    }
+    visited.add(id)
+    id = owners.get(id)
+  }
+  return id
+}
+
+function revisionKey(candidate, scalars) {
+  return JSON.stringify([...candidate.members].sort(([a], [b]) => a.localeCompare(b))
+    .map(([id, member]) => [id, scalarKey(member, scalars)]))
 }
 
 function values(value) {
@@ -86,6 +154,9 @@ function predicateIRI(key, { context }) {
 }
 
 function field(candidate, iri) {
+  if (!candidate) {
+    return undefined
+  }
   return Object.entries(candidate.subject).find(([key]) => predicateIRI(key, candidate) === iri)?.[1]
 }
 

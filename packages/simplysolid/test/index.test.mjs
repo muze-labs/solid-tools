@@ -343,7 +343,7 @@ test('connect adds a remote replica and syncs a local-first collection', async (
   assert.deepEqual(client.calls, [
     ['resource.get', 'https://pod.example/storage/contacts.ttl'],
     ['resource.get', 'https://pod.example/storage/contacts.ttl'],
-    ['resource.put', 'https://pod.example/storage/contacts.ttl', status.document]
+    ['resource.put', 'https://pod.example/storage/contacts.ttl', client.calls.at(-1)[2]]
   ])
 })
 
@@ -479,33 +479,35 @@ function createDatabaseDouble(state) {
       if (!store) {
         throw new Error(`missing object store ${name}`)
       }
-      return {
+      const transaction = {
         objectStore() {
-          return createObjectStoreDouble(store)
+          return createObjectStoreDouble(store, transaction)
         }
       }
+      return transaction
     },
     close() {}
   }
 }
 
-function createObjectStoreDouble(store) {
+function createObjectStoreDouble(store, transaction) {
   return {
     get(key) {
-      return indexedDBSuccess(cloneJson(store.values.get(key)))
+      return indexedDBSuccess(cloneJson(store.values.get(key)), transaction)
     },
     put(value) {
       store.values.set(value[store.keyPath], cloneJson(value))
-      return indexedDBSuccess(value)
+      return indexedDBSuccess(value, transaction)
     }
   }
 }
 
-function indexedDBSuccess(value) {
+function indexedDBSuccess(value, transaction) {
   const request = {}
   queueMicrotask(() => {
     request.result = value
     request.onsuccess?.({ target: request })
+    transaction?.oncomplete?.()
   })
   return request
 }

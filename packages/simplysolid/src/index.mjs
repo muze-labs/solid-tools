@@ -73,7 +73,7 @@ export class SimplySolid {
         handle.refresh()
       }
 
-      this.status.state = 'ready'
+      this.acceptOpenedWorkspace()
       this.status.lastOpen = new Date()
       return this.data
     } catch (error) {
@@ -98,8 +98,8 @@ export class SimplySolid {
         handle.refresh()
       }
 
-      this.status.state = 'ready'
-      this.status.lastSync = new Date()
+      this.acceptOpenedWorkspace()
+      if (this.status.state === 'ready') this.status.lastSync = new Date()
       return this.data
     } catch (error) {
       this.status.state = 'error'
@@ -139,7 +139,7 @@ export class SimplySolid {
         handle.refresh()
       }
 
-      this.status.state = 'ready'
+      this.acceptOpenedWorkspace()
       this.status.lastConnect = new Date()
       return this
     } catch (error) {
@@ -160,14 +160,28 @@ export class SimplySolid {
         handle.refresh()
       }
 
-      this.status.state = 'ready'
-      this.status.lastSync = new Date()
+      this.status.state = status.ok === false || status.status === 'sync-pending'
+        ? this.workspace.status.resources[status.resource?.id]?.state ?? 'error'
+        : 'ready'
+      this.status.error = status.error ?? null
+      if (this.status.state === 'ready') this.status.lastSync = new Date()
       return status
     } catch (error) {
       this.status.state = 'error'
       this.status.error = error
       throw error
     }
+  }
+
+  acceptOpenedWorkspace() {
+    const sources = Object.values(this.workspace.status.sources)
+    const localFailure = sources.find(source => source.local && source.error)
+    if (localFailure || this.workspace.status.state === 'error') {
+      throw localFailure?.error ?? this.workspace.status.error ?? new Error('simplysolid: workspace could not be opened')
+    }
+    const remoteFailure = sources.find(source => source.error)
+    this.status.state = remoteFailure ? 'sync-pending' : 'ready'
+    this.status.error = remoteFailure?.error ?? null
   }
 
   async checkSetup() {
@@ -253,7 +267,7 @@ export class SimplySolidCollection {
 
   refresh() {
     this.items = this.collection.list()
-    this.status.state = 'ready'
+    if (this.status.state === 'idle') this.status.state = 'ready'
     this.status.lastSync = new Date()
     return this.items
   }
@@ -264,6 +278,9 @@ export class SimplySolidCollection {
 
     try {
       await this.solid.workspace.open(this.collection.descriptor.sources)
+      this.solid.acceptOpenedWorkspace()
+      this.status.state = this.solid.status.state
+      this.status.error = this.solid.status.error
       return this.refresh()
     } catch (error) {
       this.status.state = 'error'
@@ -294,6 +311,7 @@ export class SimplySolidCollection {
 
       const status = await this.collection.save(object, options)
       this.status.lastSave = status
+      if (!status.ok) throw status.error ?? new Error(`simplysolid: ${this.name} save failed: ${status.status}`, { cause: status })
       this.refresh()
       return object
     })
@@ -311,6 +329,7 @@ export class SimplySolidCollection {
 
       const status = await this.collection.save(object, options)
       this.status.lastSave = status
+      if (!status.ok) throw status.error ?? new Error(`simplysolid: ${this.name} save failed: ${status.status}`, { cause: status })
       this.refresh()
       return object
     })
@@ -324,6 +343,7 @@ export class SimplySolidCollection {
         save: options.save ?? true
       })
       this.status.lastSave = status
+      if (!status.ok) throw status.error ?? new Error(`simplysolid: ${this.name} save failed: ${status.status}`, { cause: status })
       this.refresh()
       return status
     })
@@ -448,6 +468,7 @@ function normalizeCollection(name, descriptor = {}, config = {}) {
   if (isLocalFirstDescriptor(name, descriptor, config)) {
     const resourceId = descriptor.resourceId ?? descriptor.resource ?? descriptor.source ?? name
     const resource = workspaceResource(resourceId, {
+      scalarPredicates: descriptor.scalarPredicates ?? [],
       local: localSourceForResource(name, descriptor, config),
       remote: remoteSourceForResource(name, descriptor, config, resourceId)
     })

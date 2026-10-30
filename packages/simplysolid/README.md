@@ -20,3 +20,9 @@ Expand a prefixed constant once with its OLDM context before using it in filters
 The workspace preserves HTTP/HTTPS namespace identity and does not rewrite
 application-owned legacy documents. OLDM graph write helpers still accept
 prefixed inputs where documented.
+
+Collection `create`, `update`, and `delete` reject failed persistence. `lastSave`
+retains the result and listing items does not clear a write failure. Resource
+sync retains `sync-pending` or `error` service state instead of reporting ready.
+Local-first data descriptors may specify `scalarPredicates` (full IRIs); replica
+policy belongs to [Solid Workspace](../solid-workspace/README.md).

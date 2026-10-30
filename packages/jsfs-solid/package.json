@@ -1,6 +1,6 @@
 {
   "name": "@muze-labs/jsfs-solid",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "A JSFS adapter for Solid storage, implemented on top of metro-solid.",
   "main": "src/index.mjs",

@@ -14,6 +14,13 @@ The first local source factories are `local.memory()` and `local.indexedDB()`. `
 
 `workspace.open('notes')`, `workspace.graph('notes')`, `workspace.createIn('notes', object)`, and `workspace.sync('notes')` are the intended local-first path. `workspace.open()` is tolerant by default: remote source failures become source status while local sources keep the app usable. `workspace.load()` remains strict for lower-level callers.
 
+HTTP failures from adapters may carry a numeric status directly on
+`error.status` or on `error.cause.status`; a direct status takes precedence.
+401/403 report `auth-needed`, other HTTP failures (including 412 conflicts)
+report `error`, and failures without a status report `offline`. The original
+error remains available to the caller. This classification does not trigger
+retries or change write policy.
+
 It does not authenticate, parse RDF, expose filesystem operations, or bind to SimplyFlow. Those concerns stay in Metro-OIDC, Metro-OLDM/OLDM, JSFS-Solid, and SimplySolid.
 
 Docs:

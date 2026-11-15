@@ -81,7 +81,7 @@ export function sourceFailureState(error) {
     return 'auth-needed'
   }
 
-  if (!status || error?.name === 'TypeError') {
+  if (!status) {
     return 'offline'
   }
 
@@ -89,7 +89,7 @@ export function sourceFailureState(error) {
 }
 
 export function errorStatus(error) {
-  return error?.cause?.status
+  return error?.status ?? error?.cause?.status
 }
 
 export class WorkspaceStatus {

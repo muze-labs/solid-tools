@@ -7,7 +7,7 @@ This repository currently combines two kinds of work:
 - early code for `metro-solid` and `jsfs-solid`;
 - scaffolding for the remaining packages that will become the SimplySolid runtime stack.
 
-Nothing in this repository is released yet, so package boundaries and APIs can still change freely while the design settles.
+The libraries are published under `@muze-labs` and remain experimental.
 
 ## Packages
 
@@ -100,3 +100,25 @@ npm run lint
 
 Passing tests with local links does not establish compatibility with the
 published dependency versions.
+
+## Releasing libraries
+
+Commit the intended source, package versions and dependency updates, then run:
+
+```sh
+npm run release                # dry run; publishes nothing
+npm run release -- --publish   # publish to npm
+```
+
+Only non-private libraries in `packages/*` are released; the root and example
+applications are excluded. The script checks published package contents for
+missing version bumps, checks dependency ranges against npm and the planned
+release, runs `npm run check`, and checks that package builds leave tracked files
+unchanged. It requires a clean tracked working tree.
+
+Packages are published in dependency order with public access. Authentication
+and one-time-password prompts remain available in the terminal. If publication
+stops halfway, rerun the same command on the same commit; progress is retained
+in `node_modules/.cache/release-progress.json` so registry propagation does not
+cause an already published package to be retried. Changing commits starts a new
+release check. A dry run never records publication progress.
